@@ -1,7 +1,7 @@
 MODEL:
-  PRETRAIN_CHOICE: 'imagenet' # If you are using pre-trained raw weights, such as those named ‘transformer_60.pth’, set this option to ‘clip’.
-  PRETRAIN_PATH: '/home/share/chenfree/ReID/vit_b512_pre.pth'
-  # PRETRAIN_PATH: logs/pretrain_transoss_AdamW/transformer_60.pth
+  PRETRAIN_CHOICE: 'clip' # If you are using pre-trained raw weights, such as those named ‘transformer_60.pth’, set this option to ‘clip’.
+  # PRETRAIN_PATH: '/home/share/chenfree/ReID/vit_b512_pre.pth'
+  PRETRAIN_PATH: 'transformer_60.pth'
   METRIC_LOSS_TYPE: 'triplet'
   IF_LABELSMOOTH: 'off'
   IF_WITH_CENTER: 'no'
@@ -14,13 +14,16 @@ MODEL:
   MIE_COE: 3.0
   SSE: True
   PAIR: False
-  GATED_ATTENTION: True
+  GATED_ATTENTION: False
+  USE_FCE: False
+  IC_LOSS_WEIGHT: 0.5
+  ID_LOSS_ENHANCED_WEIGHT: 0.5
 
 INPUT:
   SIZE_TRAIN: [256, 128]
   SIZE_TEST: [256, 128]
   PROB: 0.5 # random horizontal flip
-  RE_PROB: 0.5 # random erasing
+  RE_PROB: 0.2 # random erasing
   PADDING: 10
   PIXEL_MEAN: [0.485, 0.456, 0.406]
   PIXEL_STD: [0.229, 0.224, 0.225]
@@ -36,7 +39,7 @@ DATALOADER:
 
 SOLVER:
   OPTIMIZER_NAME: 'SGD'
-  MAX_EPOCHS: 200
+  MAX_EPOCHS: 100
   BASE_LR: 0.0005
   IMS_PER_BATCH: 32
   WARMUP_METHOD: 'linear'
@@ -47,7 +50,6 @@ SOLVER:
   WEIGHT_DECAY:  1e-4
   WEIGHT_DECAY_BIAS: 1e-4
   BIAS_LR_FACTOR: 2
-  SEED: 1234
 
 TEST:
   EVAL: True
@@ -57,4 +59,4 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/transoss_gated'
+OUTPUT_DIR: './logs/transoss_pretrain_dl'

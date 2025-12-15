@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from torch._six import container_abcs
 from collections.abc import Iterable
 
 
@@ -423,20 +422,15 @@ class TransOSS(nn.Module):
         # wh_embed head
         if hasattr(self, "wh_embed"):
             wh_tokens = self.wh_embed(img_wh).unsqueeze(1)
-
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
-
         if self.cam_num > 0:
             x = x + self.pos_embed + self.mie_coe * self.mie_embed[camera_id]
         else:
             x = x + self.pos_embed
-
         if hasattr(self, "wh_embed"):
             x = torch.cat((x, wh_tokens), dim=1)
-
         x = self.pos_drop(x)
-
         if self.local_feature:
             for blk in self.blocks[:-1]:
                 x = blk(x)
@@ -445,18 +439,15 @@ class TransOSS(nn.Module):
         else:
             for blk in self.blocks:
                 x = blk(x)
-
             x = self.norm(x)
-
             if hasattr(self, "wh_embed"):
                 return x[:, 0], x[:, 1:-1]
             else:
                 return x[:, 0], x[:, 1:]
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        # 获取特征
         cls_token, patch_tokens = self.forward_features(x, cam_label, img_wh)
-        return cls_token  # 外部会处理 bottleneck
+        return cls_token
 
     def load_param(self, model_path):
         param_dict = torch.load(model_path, map_location="cpu")

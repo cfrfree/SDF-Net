@@ -8,8 +8,6 @@ from utils.metrics import R1_mAP_eval
 from torch.cuda import amp
 import torch.distributed as dist
 from loss import clip_loss
-from loss.cmt_loss import ModalityConsistencyLoss
-from loss.topo_loss import TopologicalConsistencyLoss
 
 
 def do_train_pair(cfg, model, train_loader_pair, optimizer, scheduler, local_rank):
@@ -115,12 +113,6 @@ def do_train(
 
     patch_size = 16
 
-    h_num = cfg.INPUT.SIZE_TRAIN[0] // patch_size
-    w_num = cfg.INPUT.SIZE_TRAIN[1] // patch_size
-
-    cmt_loss_fn = ModalityConsistencyLoss()
-    topo_loss_fn = TopologicalConsistencyLoss(h_num=h_num, w_num=w_num)
-
     logger = logging.getLogger("transreid.train")
     logger.info("start training")
 
@@ -133,7 +125,6 @@ def do_train(
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
     loss_base_meter = AverageMeter()
-
     evaluator = R1_mAP_eval(num_query, max_rank=50, feat_norm=cfg.TEST.FEAT_NORM)
     scaler = amp.GradScaler()
 
@@ -148,7 +139,6 @@ def do_train(
         loss_meter.reset()
         acc_meter.reset()
         loss_base_meter.reset()
-
         evaluator.reset()
         scheduler.step(epoch)
         model.train()
@@ -163,9 +153,6 @@ def do_train(
 
             with amp.autocast(enabled=True):
                 outputs = model(img, target, cam_label=target_cam, img_wh=img_wh)
-
-                loss_base = torch.tensor(0.0).to(device)
-
                 cls_score, feat = outputs
                 loss_base = loss_fn(cls_score, feat, target, target_cam)
                 loss = loss_base
@@ -188,7 +175,6 @@ def do_train(
             loss_meter.update(loss.item(), img.shape[0])
             loss_base_meter.update(loss_base.item(), img.shape[0])
             acc_meter.update(acc, 1)
-
             torch.cuda.synchronize()
             if (n_iter + 1) % log_period == 0:
                 if not cfg.MODEL.DIST_TRAIN or dist.get_rank() == 0:

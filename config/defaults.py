@@ -66,13 +66,6 @@ _C.MODEL.SSE = False
 # Pretrain with images pairs
 _C.MODEL.PAIR = False
 
-# === 新增 STAR-Trans 相关配置 ===
-_C.MODEL.USE_CMT = False  # 是否启用 CMT 模块
-_C.MODEL.CMT_NUM_PARTS = 2  # CMT 分块数量
-_C.MODEL.CYC_LOSS_WEIGHT = 0.1  # 循环一致性损失权重
-_C.MODEL.TOPO_LOSS_WEIGHT = 0.1  # 拓扑一致性损失权重
-# ==============================
-
 _C.MODEL.GATED_ATTENTION = False
 
 # -----------------------------------------------------------------------------
