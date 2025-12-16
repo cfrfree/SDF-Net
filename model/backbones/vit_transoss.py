@@ -460,15 +460,19 @@ class TransOSS(nn.Module):
                 x = blk(x)
             x = self.norm(x)
             if self.disentangle:
-                # x[:, 0] -> Shared, x[:, 1] -> Specific
                 return x[:, 0], x[:, 1]
             else:
-                # 原始逻辑，只返回 cls_token
                 return x[:, 0]
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        feat_shared, feat_spec = self.forward_features(x, cam_label, img_wh)
-        return feat_shared, feat_spec
+        if self.disentangle:
+            # 开启解耦：接收两个特征
+            feat_shared, feat_spec = self.forward_features(x, cam_label, img_wh)
+            return feat_shared, feat_spec
+        else:
+            # 关闭解耦：只接收一个特征 (原始逻辑)
+            x = self.forward_features(x, cam_label, img_wh)
+            return x
 
     def load_param(self, model_path):
         param_dict = torch.load(model_path, map_location="cpu")
