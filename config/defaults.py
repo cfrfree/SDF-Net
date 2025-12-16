@@ -67,6 +67,8 @@ _C.MODEL.SSE = False
 _C.MODEL.PAIR = False
 
 _C.MODEL.GATED_ATTENTION = False
+_C.MODEL.DISENTANGLE = False
+_C.MODEL.ORTH_LOSS_WEIGHT = 0.1
 
 # -----------------------------------------------------------------------------
 # INPUT

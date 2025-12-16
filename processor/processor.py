@@ -8,6 +8,7 @@ from utils.metrics import R1_mAP_eval
 from torch.cuda import amp
 import torch.distributed as dist
 from loss import clip_loss
+from loss import orthogonality_loss
 
 
 def do_train_pair(cfg, model, train_loader_pair, optimizer, scheduler, local_rank):
@@ -111,8 +112,6 @@ def do_train(
     device = "cuda"
     epochs = cfg.SOLVER.MAX_EPOCHS
 
-    patch_size = 16
-
     logger = logging.getLogger("transreid.train")
     logger.info("start training")
 
@@ -135,7 +134,6 @@ def do_train(
         model.train_with_single()
 
     for epoch in range(1, epochs + 1):
-
         loss_meter.reset()
         acc_meter.reset()
         loss_base_meter.reset()
@@ -152,10 +150,19 @@ def do_train(
             img_wh = img_wh.to(device)
 
             with amp.autocast(enabled=True):
-                outputs = model(img, target, cam_label=target_cam, img_wh=img_wh)
-                cls_score, feat = outputs
-                loss_base = loss_fn(cls_score, feat, target, target_cam)
-                loss = loss_base
+                if cfg.MODEL.DISENTANGLE:
+                    score_fuse, feat_fuse, feat_shared, feat_spec = model(img, target, cam_label=target_cam, img_wh=img_wh)
+                    cls_score = score_fuse
+                    loss_base = loss_fn(score_fuse, feat_fuse, target, target_cam)
+                    f_shared_norm = torch.nn.functional.normalize(feat_shared, p=2, dim=1)
+                    f_spec_norm = torch.nn.functional.normalize(feat_spec, p=2, dim=1)
+                    loss_orth = torch.mean(torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1)))
+                    loss = loss_base + cfg.MODEL.ORTH_LOSS_WEIGHT * loss_orth
+                else:
+                    outputs = model(img, target, cam_label=target_cam, img_wh=img_wh)
+                    cls_score, feat = outputs
+                    loss_base = loss_fn(cls_score, feat, target, target_cam)
+                    loss = loss_base
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -193,7 +200,6 @@ def do_train(
             log_msg = f"Epoch {epoch} done. "
 
             log_msg += " Stats: Acc: {:.2%}, Total Loss: {:.4f}, Base Loss: {:.4f}".format(acc_meter.avg, loss_meter.avg, loss_base_meter.avg)
-
             logger.info(log_msg)
 
         if epoch % checkpoint_period == 0:
@@ -228,6 +234,8 @@ def do_train(
                 for r in [1, 5, 10]:
                     logger.info("CMC curve, Rank-{:<3}:{:.1%}".format(r, cmc[r - 1]))
                 torch.cuda.empty_cache()
+            if cfg.MODEL.DIST_TRAIN:
+                dist.barrier()
 
 
 def do_inference(cfg, model, val_loader, num_query):

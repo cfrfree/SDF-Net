@@ -48,7 +48,6 @@ if __name__ == "__main__":
     (
         train_loader,
         train_loader_normal,
-        _,
         val_loader,
         num_query,
         num_classes,

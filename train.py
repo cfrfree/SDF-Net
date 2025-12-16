@@ -24,7 +24,6 @@ def set_seed(seed):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="TransOSS Training")
     parser.add_argument(
         "--config_file",

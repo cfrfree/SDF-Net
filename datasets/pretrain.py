@@ -30,9 +30,11 @@ class Pretrain(BaseImageDataset):
         self.train = train
         self.train_pair = train_pair
 
-        self.num_train_pair_pids, self.num_train_pair_imgs, self.num_train_pair_cams = (
-            self.get_imagedata_info_pair(self.train_pair)
-        )
+        (
+            self.num_train_pair_pids,
+            self.num_train_pair_imgs,
+            self.num_train_pair_cams,
+        ) = self.get_imagedata_info_pair(self.train_pair)
 
     def get_imagedata_info_pair(self, data):
         pids, cams = [], []

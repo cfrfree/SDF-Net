@@ -6,7 +6,6 @@ from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
 
 
 def shuffle_unit(features, shift, group, begin=1):
-
     batchsize = features.size(0)
     dim = features.size(-1)
     # Shift Operation
@@ -132,6 +131,7 @@ class build_transformer(nn.Module):
         self.neck_feat = cfg.TEST.NECK_FEAT
         self.in_planes = 768
         self.model_type = cfg.MODEL.TRANSFORMER_TYPE
+        self.disentangle = cfg.MODEL.DISENTANGLE
 
         print("using Transformer_type: {} as a backbone".format(cfg.MODEL.TRANSFORMER_TYPE))
 
@@ -150,6 +150,7 @@ class build_transformer(nn.Module):
                 attn_drop_rate=cfg.MODEL.ATT_DROP_RATE,
                 sse=cfg.MODEL.SSE,
                 use_gated_attention=cfg.MODEL.GATED_ATTENTION,
+                disentangle=self.disentangle,
             )
         else:
             raise ValueError("Unsupported model type: {}".format(cfg.MODEL.TRANSFORMER_TYPE))
@@ -192,6 +193,11 @@ class build_transformer(nn.Module):
             self.classifier = nn.Linear(self.in_planes, self.num_classes, bias=False)
             self.classifier.apply(weights_init_classifier)
 
+        if self.disentangle:
+            self.bottleneck_fuse = nn.BatchNorm1d(self.in_planes)
+            self.bottleneck_fuse.bias.requires_grad_(False)
+            self.bottleneck_fuse.apply(weights_init_kaiming)
+
         self.bottleneck = nn.BatchNorm1d(self.in_planes)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
@@ -221,36 +227,33 @@ class build_transformer(nn.Module):
         self.train_pair = False
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
-        if self.training:
-            if self.train_pair:
-                b_s = global_feat.size(0)
-                # normalized features
-                opt_embeds = global_feat[0 : b_s // 2]
-                sar_embeds = global_feat[b_s // 2 :]
-                opt_embeds = opt_embeds / opt_embeds.norm(p=2, dim=-1, keepdim=True)
-                sar_embeds = sar_embeds / sar_embeds.norm(p=2, dim=-1, keepdim=True)
-
-                # cosine similarity as logits
-                logit_scale = self.logit_scale.exp()
-                logits_per_sar = torch.matmul(sar_embeds, opt_embeds.t()) * logit_scale
-                return logits_per_sar
+        if self.disentangle:
+            feat_shared, feat_spec = self.base(x, cam_label=cam_label, img_wh=img_wh)
+            if self.training:
+                feat_fuse = feat_shared + feat_spec
+                feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
+                if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
+                    score_fuse = self.classifier(feat_fuse_bn, label)
+                else:
+                    score_fuse = self.classifier(feat_fuse_bn)
+                return score_fuse, feat_fuse, feat_shared, feat_spec
             else:
+                feat_fuse = feat_shared + feat_spec
+                return self.bottleneck_fuse(feat_fuse)
+        else:
+            global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
+            if self.training:
                 feat = self.bottleneck(global_feat)
                 if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
                     cls_score = self.classifier(feat, label)
                 else:
                     cls_score = self.classifier(feat)
-
-                return cls_score, global_feat  # global feature for triplet loss
-        else:
-            if self.neck_feat == "after":
-                feat = self.bottleneck(global_feat)
-                # print("Test with feature after BN")
-                return feat
+                return cls_score, global_feat
             else:
-                # print("Test with feature before BN")
-                return global_feat
+                if self.neck_feat == "after":
+                    return self.bottleneck(global_feat)
+                else:
+                    return global_feat
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)

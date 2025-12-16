@@ -68,15 +68,24 @@ class BaseImageDataset(BaseDataset):
 
     def print_dataset_statistics(self, train, query, gallery):
         if train is not None:
-            num_train_pids, num_train_imgs, num_train_cams, num_train_views = (
-                self.get_imagedata_info(train)
-            )
-        num_query_pids, num_query_imgs, num_query_cams, num_train_views = (
-            self.get_imagedata_info(query)
-        )
-        num_gallery_pids, num_gallery_imgs, num_gallery_cams, num_train_views = (
-            self.get_imagedata_info(gallery)
-        )
+            (
+                num_train_pids,
+                num_train_imgs,
+                num_train_cams,
+                num_train_views,
+            ) = self.get_imagedata_info(train)
+        (
+            num_query_pids,
+            num_query_imgs,
+            num_query_cams,
+            num_train_views,
+        ) = self.get_imagedata_info(query)
+        (
+            num_gallery_pids,
+            num_gallery_imgs,
+            num_gallery_cams,
+            num_train_views,
+        ) = self.get_imagedata_info(gallery)
 
         print("Dataset statistics:")
         print("  ----------------------------------------")

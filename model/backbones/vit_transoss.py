@@ -25,15 +25,6 @@ to_2tuple = _ntuple(2)
 
 
 def drop_path(x, drop_prob: float = 0.0, training: bool = False):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-
-    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
-    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
-    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
-    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
-    'survival rate' as the argument.
-
-    """
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1 - drop_prob
@@ -45,8 +36,6 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False):
 
 
 class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks)."""
-
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
@@ -82,11 +71,19 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0.0, proj_drop=0.0, use_gated=False):
+    def __init__(
+        self,
+        dim,
+        num_heads=8,
+        qkv_bias=False,
+        qk_scale=None,
+        attn_drop=0.0,
+        proj_drop=0.0,
+        use_gated=False,
+    ):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
-        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = qk_scale or head_dim**-0.5
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
@@ -124,7 +121,6 @@ class Attention(nn.Module):
 
 
 class Block(nn.Module):
-
     def __init__(
         self,
         dim,
@@ -142,7 +138,13 @@ class Block(nn.Module):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, use_gated=use_gated
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            attn_drop=attn_drop,
+            proj_drop=drop,
+            use_gated=use_gated,
         )
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
@@ -198,9 +200,6 @@ class HybridEmbed(nn.Module):
         self.backbone = backbone
         if feature_size is None:
             with torch.no_grad():
-                # FIXME this is hacky, but most reliable way of determining the exact dim of the output feature
-                # map for all networks, the feature metadata has reliable channel and stride info, but using
-                # stride to calc feature dim requires info about padding of each stage that isn't captured.
                 training = backbone.training
                 if training:
                     backbone.eval()
@@ -228,8 +227,6 @@ class HybridEmbed(nn.Module):
 
 
 class PatchEmbed_overlap(nn.Module):
-    """Image to Patch Embedding with overlapping patches"""
-
     def __init__(self, img_size=224, patch_size=16, stride_size=20, in_chans=3, embed_dim=768):
         super().__init__()
         img_size = to_2tuple(img_size)
@@ -279,10 +276,6 @@ class WHPatchEmbedding(nn.Module):
 
 
 class TransOSS(nn.Module):
-    """
-    # Transformer-based Cross-modal Ship Re-Identification
-    """
-
     def __init__(
         self,
         img_size=224,
@@ -306,11 +299,13 @@ class TransOSS(nn.Module):
         mie_coe=1.0,
         sse=False,
         use_gated_attention=False,
+        disentangle=False,
     ):
         super().__init__()
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.local_feature = local_feature
+        self.disentangle = disentangle
         if hybrid_backbone is not None:
             self.patch_embed = HybridEmbed(
                 hybrid_backbone,
@@ -343,7 +338,18 @@ class TransOSS(nn.Module):
         num_patches = self.patch_embed.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        if self.disentangle:
+            # 如果解耦，我们有两个 Token (Shared + Specific)，所以是 num_patches + 2
+            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 2, embed_dim))
+
+            # 初始化 Specific Tokens
+            self.cls_token_spe_rgb = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            self.cls_token_spe_sar = nn.Parameter(torch.zeros(1, 1, embed_dim))
+            trunc_normal_(self.cls_token_spe_rgb, std=0.02)
+            trunc_normal_(self.cls_token_spe_sar, std=0.02)
+        else:
+            # 原始逻辑，只有一个 Token，所以是 num_patches + 1
+            self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.cam_num = camera
         self.mie_coe = mie_coe
         # Initialize Modality Information Embedding
@@ -423,7 +429,21 @@ class TransOSS(nn.Module):
         if hasattr(self, "wh_embed"):
             wh_tokens = self.wh_embed(img_wh).unsqueeze(1)
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
+        if self.disentangle:
+            # 1. 准备 Specific Tokens
+            rgb_id = torch.where(camera_id == 0)[0]
+            sar_id = torch.where(camera_id == 1)[0]
+
+            spe_tokens = torch.zeros_like(cls_tokens)
+            if len(rgb_id) > 0:
+                spe_tokens[rgb_id] = self.cls_token_spe_rgb.expand(len(rgb_id), -1, -1)
+            if len(sar_id) > 0:
+                spe_tokens[sar_id] = self.cls_token_spe_sar.expand(len(sar_id), -1, -1)
+
+            # 2. 拼接: [Shared, Specific, Patches]
+            x = torch.cat((cls_tokens, spe_tokens, x), dim=1)
+        else:
+            x = torch.cat((cls_tokens, x), dim=1)
         if self.cam_num > 0:
             x = x + self.pos_embed + self.mie_coe * self.mie_embed[camera_id]
         else:
@@ -435,19 +455,20 @@ class TransOSS(nn.Module):
             for blk in self.blocks[:-1]:
                 x = blk(x)
             return x
-
         else:
             for blk in self.blocks:
                 x = blk(x)
             x = self.norm(x)
-            if hasattr(self, "wh_embed"):
-                return x[:, 0], x[:, 1:-1]
+            if self.disentangle:
+                # x[:, 0] -> Shared, x[:, 1] -> Specific
+                return x[:, 0], x[:, 1]
             else:
-                return x[:, 0], x[:, 1:]
+                # 原始逻辑，只返回 cls_token
+                return x[:, 0]
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        cls_token, patch_tokens = self.forward_features(x, cam_label, img_wh)
-        return cls_token
+        feat_shared, feat_spec = self.forward_features(x, cam_label, img_wh)
+        return feat_shared, feat_spec
 
     def load_param(self, model_path):
         param_dict = torch.load(model_path, map_location="cpu")
@@ -467,7 +488,38 @@ class TransOSS(nn.Module):
                 if "distilled" in model_path:
                     print("distill need to choose right cls token in the pth")
                     v = torch.cat([v[:, 0:1], v[:, 2:]], dim=1)
-                v = resize_pos_embed(v, self.pos_embed, self.patch_embed.num_y, self.patch_embed.num_x)
+
+                # --- 修改开始：智能判断是否需要 resize ---
+
+                # 假设 v 的第 0 个是 CLS Token，后面是 Patch Tokens
+                # 源权重中的 patch 数量
+                src_num_patches = v.shape[1] - 1
+                # 当前模型的 patch 数量 (不含 CLS Tokens)
+                tgt_num_patches = self.patch_embed.num_patches
+
+                if src_num_patches == tgt_num_patches:
+                    # Case A: Patch 数量一致（空间分辨率匹配），不需要 resize_pos_embed
+                    # 仅处理因 disentangle 导致的 Token 数量不一致
+                    if self.disentangle and v.shape[1] == self.pos_embed.shape[1] - 1:
+                        print(f"Adapting pos_embed for disentangle (spatial match): {v.shape} -> {self.pos_embed.shape}")
+                        cls_pos = v[:, 0:1]
+                        patch_pos = v[:, 1:]
+                        # 复制 CLS Token 的位置编码给 Specific Token
+                        v = torch.cat([cls_pos, cls_pos, patch_pos], dim=1)
+                else:
+                    # Case B: Patch 数量不一致（例如加载 ImageNet 权重），需要 resize
+                    print(f"Resizing pos_embed: {v.shape} -> {self.pos_embed.shape}")
+                    v = resize_pos_embed(v, self.pos_embed, self.patch_embed.num_y, self.patch_embed.num_x)
+
+                    # resize 后，如果是 disentangle 模式，仍然少一个 Token，需要补上
+                    if self.disentangle and v.shape[1] == self.pos_embed.shape[1] - 1:
+                        print(f"Extending pos_embed token after resize")
+                        cls_pos = v[:, 0:1]
+                        patch_pos = v[:, 1:]
+                        v = torch.cat([cls_pos, cls_pos, patch_pos], dim=1)
+
+                # --- 修改结束 ---
+
             try:
                 self.state_dict()[k].copy_(v)
             except:
@@ -483,8 +535,6 @@ class TransOSS(nn.Module):
 
 
 def resize_pos_embed(posemb, posemb_new, hight, width):
-    # Rescale the grid of position embeddings when loading from state_dict. Adapted from
-    # https://github.com/google-research/vision_transformer/blob/00883dd691c63a6830751563748663526e811cee/vit_jax/checkpoint.py#L224
     ntok_new = posemb_new.shape[1]
 
     posemb_token, posemb_grid = posemb[:, :1], posemb[0, 1:]
@@ -537,10 +587,7 @@ def vit_base_patch16_224_TransOSS(
 
 
 def _no_grad_trunc_normal_(tensor, mean, std, a, b):
-    # Cut & paste from PyTorch official master until it's in a few official releases - RW
-    # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
     def norm_cdf(x):
-        # Computes standard normal cumulative distribution function
         return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
     if (mean < a - 2 * std) or (mean > b + 2 * std):
@@ -549,45 +596,15 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
         )
 
     with torch.no_grad():
-        # Values are generated by using a truncated uniform distribution and
-        # then using the inverse CDF for the normal distribution.
-        # Get upper and lower cdf values
         l = norm_cdf((a - mean) / std)
         u = norm_cdf((b - mean) / std)
-
-        # Uniformly fill tensor with values from [l, u], then translate to
-        # [2l-1, 2u-1].
         tensor.uniform_(2 * l - 1, 2 * u - 1)
-
-        # Use inverse cdf transform for normal distribution to get truncated
-        # standard normal
         tensor.erfinv_()
-
-        # Transform to proper mean, std
         tensor.mul_(std * math.sqrt(2.0))
         tensor.add_(mean)
-
-        # Clamp to ensure it's in the proper range
         tensor.clamp_(min=a, max=b)
         return tensor
 
 
 def trunc_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
-    # type: (torch.Tensor, float, float, float, float) -> torch.Tensor
-    r"""Fills the input Tensor with values drawn from a truncated
-    normal distribution. The values are effectively drawn from the
-    normal distribution :math:`\mathcal{N}(\text{mean}, \text{std}^2)`
-    with values outside :math:`[a, b]` redrawn until they are within
-    the bounds. The method used for generating the random values works
-    best when :math:`a \leq \text{mean} \leq b`.
-    Args:
-        tensor: an n-dimensional `torch.Tensor`
-        mean: the mean of the normal distribution
-        std: the standard deviation of the normal distribution
-        a: the minimum cutoff value
-        b: the maximum cutoff value
-    Examples:
-        >>> w = torch.empty(3, 5)
-        >>> nn.init.trunc_normal_(w)
-    """
     return _no_grad_trunc_normal_(tensor, mean, std, a, b)

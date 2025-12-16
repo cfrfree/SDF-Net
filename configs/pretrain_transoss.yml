@@ -30,9 +30,9 @@ DATALOADER:
   NUM_WORKERS: 4
 
 SOLVER:
-  OPTIMIZER_NAME: 'AdamW'
+  OPTIMIZER_NAME: 'SGD'
   MAX_EPOCHS: 60
-  BASE_LR: 0.003
+  BASE_LR: 0.01
   IMS_PER_BATCH: 256
   WARMUP_METHOD: 'linear'
   LARGE_FC_LR: False
@@ -51,4 +51,4 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/pretrain_transoss_AdamW'
+OUTPUT_DIR: './logs/pretrain_transoss'

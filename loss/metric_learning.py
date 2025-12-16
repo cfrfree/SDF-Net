@@ -55,7 +55,6 @@ class CircleLoss(nn.Module):
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
     def __call__(self, bn_feat, targets):
-
         sim_mat = F.linear(F.normalize(bn_feat), F.normalize(self.weight))
         alpha_p = torch.clamp_min(-sim_mat.detach() + 1 + self.m, min=0.0)
         alpha_n = torch.clamp_min(sim_mat.detach() + self.m, min=0.0)

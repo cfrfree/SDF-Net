@@ -24,7 +24,6 @@ class RandomErasing(object):
         self.r1 = r1
 
     def __call__(self, img):
-
         if random.uniform(0, 1) >= self.probability:
             return img
 
