@@ -1,7 +1,7 @@
 import torch
 
 # 你的权重文件路径
-path = "/home/share/chenfree/ReID/mars_base_rgb_encoder_only.pth"
+path = "/home/share/chenfree/ReID/vit_b512_pre.pth"
 
 # 加载权重
 checkpoint = torch.load(path, map_location="cpu")
