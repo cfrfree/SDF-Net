@@ -1,7 +1,7 @@
 import torch
 
 # 你的权重文件路径
-path = "/home/share/chenfree/ReID/vit_b512_pre.pth"
+path = "logs/transoss_fuse/transformer_100.pth"
 
 # 加载权重
 checkpoint = torch.load(path, map_location="cpu")

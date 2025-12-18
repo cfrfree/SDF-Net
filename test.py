@@ -11,7 +11,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TransOSS Testing")
     parser.add_argument(
         "--config_file",
-        default="configs/HOSS/hoss_transoss.yml",
+        default="configs/hoss_transoss.yml",
         help="path to config file",
         type=str,
     )
@@ -52,8 +52,10 @@ if __name__ == "__main__":
         num_query,
         num_classes,
         camera_num,
-    ) = make_dataloader(cfg)
+    ) = make_dataloader(cfg, is_train=False)
 
     model = make_model(cfg, num_class=num_classes, camera_num=camera_num)
+    print(f"Start loading test weight: {cfg.TEST.WEIGHT}")  # 新增
     model.load_param(cfg.TEST.WEIGHT)
+    print(f"Successfully loaded test weight: {cfg.TEST.WEIGHT}")  # 新增
     do_inference(cfg, model, val_loader, num_query)
