@@ -13,9 +13,11 @@ MODEL:
   MIE_COE: 3.0
   SSE: True
   PAIR: False
-  GATED_ATTENTION: False
-  DISENTANGLE: False
+  GATED_ATTENTION: True
+  DISENTANGLE: True
   ORTH_LOSS_WEIGHT: 1.0
+  DEE_ENABLE: True
+  DROP_PATH: 0.3
 
 INPUT:
   SIZE_TRAIN: [256, 128]
@@ -43,7 +45,7 @@ SOLVER:
   WARMUP_METHOD: 'linear'
   LARGE_FC_LR: False
   CHECKPOINT_PERIOD: 10
-  LOG_PERIOD: 50
+  LOG_PERIOD: 25
   EVAL_PERIOD: 10
   WEIGHT_DECAY:  1e-4
   WEIGHT_DECAY_BIAS: 1e-4
@@ -53,8 +55,8 @@ TEST:
   EVAL: True
   IMS_PER_BATCH: 256
   RE_RANKING: False
-  WEIGHT: 'logs/transoss/transformer_70.pth'
+  WEIGHT: 'logs/transoss_fuse_inno_drop3/transformer_100.pth'
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/transoss_)2S'
+OUTPUT_DIR: './logs/transoss_fuse_inno_gate_drop3'

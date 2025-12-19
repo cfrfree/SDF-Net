@@ -65,12 +65,16 @@ def make_dataloader(cfg, is_train=True):
             T.Resize(cfg.INPUT.SIZE_TRAIN, interpolation=3),
             T.RandomHorizontalFlip(p=cfg.INPUT.PROB),
             T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0),
-            T.RandomApply([T.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0))], p=0.3),
+            T.RandomApply(
+                [T.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0))], p=0.3
+            ),
             T.Pad(cfg.INPUT.PADDING),
             T.RandomCrop(cfg.INPUT.SIZE_TRAIN),
             T.ToTensor(),
             T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
-            RandomErasing(probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"),
+            RandomErasing(
+                probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"
+            ),
             # RandomErasing(probability=cfg.INPUT.RE_PROB, mean=cfg.INPUT.PIXEL_MEAN)
         ]
     )
@@ -85,19 +89,31 @@ def make_dataloader(cfg, is_train=True):
 
     num_workers = cfg.DATALOADER.NUM_WORKERS
 
-    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, is_train=is_train)
+    dataset = __factory[cfg.DATASETS.NAMES](
+        root=cfg.DATASETS.ROOT_DIR, is_train=is_train
+    )
     if is_train:
         train_set = ImageDataset(dataset.train, train_transforms)
         train_set_normal = ImageDataset(dataset.train, val_transforms)
         num_classes = dataset.num_train_pids
         cam_num = dataset.num_train_cams
-
+        train_loader_normal = DataLoader(
+            train_set_normal,
+            batch_size=cfg.TEST.IMS_PER_BATCH,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=val_collate_fn,
+        )
         if "triplet" in cfg.DATALOADER.SAMPLER:
             if cfg.MODEL.DIST_TRAIN:
                 print("DIST_TRAIN START")
                 mini_batch_size = cfg.SOLVER.IMS_PER_BATCH // dist.get_world_size()
-                data_sampler = RandomIdentitySampler_DDP(dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE)
-                batch_sampler = torch.utils.data.sampler.BatchSampler(data_sampler, mini_batch_size, True)
+                data_sampler = RandomIdentitySampler_DDP(
+                    dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE
+                )
+                batch_sampler = torch.utils.data.sampler.BatchSampler(
+                    data_sampler, mini_batch_size, True
+                )
                 train_loader = DataLoader(
                     train_set,
                     num_workers=num_workers,
@@ -127,7 +143,11 @@ def make_dataloader(cfg, is_train=True):
                 collate_fn=train_collate_fn,
             )
         else:
-            print("unsupported sampler! expected softmax or triplet but got {}".format(cfg.SAMPLER))
+            print(
+                "unsupported sampler! expected softmax or triplet but got {}".format(
+                    cfg.SAMPLER
+                )
+            )
     else:
         train_loader = None
         train_loader_normal = None
@@ -165,7 +185,9 @@ def make_dataloader_pair(cfg):
             T.RandomCrop(cfg.INPUT.SIZE_TRAIN),
             T.ToTensor(),
             T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
-            RandomErasing(probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"),
+            RandomErasing(
+                probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"
+            ),
         ]
     )
 

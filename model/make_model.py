@@ -3,6 +3,7 @@ import torch.nn as nn
 from .backbones.resnet import ResNet, Bottleneck
 from .backbones.vit_transoss import vit_base_patch16_224_TransOSS
 from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
+from .backbones.dee import DEE_Module
 
 
 def shuffle_unit(features, shift, group, begin=1):
@@ -132,6 +133,7 @@ class build_transformer(nn.Module):
         self.in_planes = 768
         self.model_type = cfg.MODEL.TRANSFORMER_TYPE
         self.disentangle = cfg.MODEL.DISENTANGLE
+        self.dee_enable = cfg.MODEL.DEE_ENABLE
 
         print("using Transformer_type: {} as a backbone".format(cfg.MODEL.TRANSFORMER_TYPE))
 
@@ -201,7 +203,22 @@ class build_transformer(nn.Module):
         self.bottleneck = nn.BatchNorm1d(self.in_planes)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
+        if self.dee_enable:
+            print("=========== Building DEE Modules (Innovation) ===========")
+            # 1. 初始化 DEE 模块
+            # 注意：self.in_planes 在这里已经定义为 768，所以不会报错
+            self.dee_module = DEE_Module(self.in_planes, num_branches=3)
 
+            # 2. 初始化 DEE 分支专用的 BN 和 Classifier
+            self.dee_bns = nn.ModuleList([nn.BatchNorm1d(self.in_planes) for _ in range(3)])
+            self.dee_fcs = nn.ModuleList([nn.Linear(self.in_planes, self.num_classes, bias=False) for _ in range(3)])
+
+            # 3. 权重初始化
+            for m in self.dee_bns:
+                m.bias.requires_grad_(False)
+                m.apply(weights_init_kaiming)
+            for m in self.dee_fcs:
+                m.apply(weights_init_classifier)
         self.train_pair = False
         self.logit_scale = nn.Parameter(torch.tensor(logit_scale_init_value))
 
@@ -227,33 +244,80 @@ class build_transformer(nn.Module):
         self.train_pair = False
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
+        # 1. Backbone 提取特征 (调用 TransOSS.forward)
         if self.disentangle:
             feat_shared, feat_spec = self.base(x, cam_label=cam_label, img_wh=img_wh)
-            if self.training:
-                feat_fuse = feat_shared + feat_spec
+            feat_fuse = feat_shared + feat_spec
+        else:
+            global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
+            feat_fuse = global_feat
+            feat_shared = global_feat
+            feat_spec = None
+
+        # 2. 训练阶段逻辑
+        if self.training:
+            # 获取 DEE 开关状态
+            dee_enabled = getattr(self, "dee_enable", False)
+
+            # === 分支 A: 开启 DEE (创新模块) ===
+            if dee_enabled:
+                # A-1. 主分支分类
+                bn_layer = self.bottleneck_fuse if self.disentangle else self.bottleneck
+                feat_fuse_bn = bn_layer(feat_fuse)
+
+                if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
+                    score_fuse = self.classifier(feat_fuse_bn, label)
+                else:
+                    score_fuse = self.classifier(feat_fuse_bn)
+
+                # A-2. DEE 辅助分支
+                # 注意：self.dee_module 应该在 build_transformer.__init__ 中定义
+                dee_feats_raw = self.dee_module(feat_fuse)
+
+                dee_scores = []
+                for i, f_raw in enumerate(dee_feats_raw):
+                    f_bn = self.dee_bns[i](f_raw)
+                    cls_s = self.dee_fcs[i](f_bn)
+                    dee_scores.append(cls_s)
+
+                # 返回 6 个值给 do_train 解包
+                return (
+                    score_fuse,
+                    dee_scores,
+                    feat_fuse,
+                    feat_shared,
+                    feat_spec,
+                    dee_feats_raw,
+                )
+
+            # === 分支 B: 仅 Disentangle ===
+            elif self.disentangle:
                 feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
                 if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
                     score_fuse = self.classifier(feat_fuse_bn, label)
                 else:
                     score_fuse = self.classifier(feat_fuse_bn)
+                # 返回 4 个值
                 return score_fuse, feat_fuse, feat_shared, feat_spec
+
+            # === 分支 C: 普通模式 ===
             else:
-                feat_fuse = feat_shared + feat_spec
-                return self.bottleneck_fuse(feat_fuse)
-        else:
-            global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
-            if self.training:
-                feat = self.bottleneck(global_feat)
+                feat = self.bottleneck(feat_fuse)
                 if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
                     cls_score = self.classifier(feat, label)
                 else:
                     cls_score = self.classifier(feat)
-                return cls_score, global_feat
+                return cls_score, feat_fuse
+
+        # 3. 推理阶段逻辑
+        else:
+            if self.disentangle:
+                return self.bottleneck_fuse(feat_fuse)
             else:
                 if self.neck_feat == "after":
-                    return self.bottleneck(global_feat)
+                    return self.bottleneck(feat_fuse)
                 else:
-                    return global_feat
+                    return feat_fuse
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)
