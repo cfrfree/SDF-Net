@@ -20,9 +20,9 @@ class InnovationLoss(nn.Module):
 
     def forward(self, feat_shared, dee_feats, logits_list, labels, modal_ids):
         """
-        feat_shared: 共享特征 [B, D]
-        dee_feats: DEE扩展出的特征列表 [f1, f2, f3]
-        logits_list: 对应DEE特征的分类logits [l1, l2, l3]
+        feat_shared: 共享特征 [B, D] (可能为 None)
+        dee_feats: DEE扩展出的特征列表 [f1, f2, f3] (可能为 None)
+        logits_list: 对应DEE特征的分类logits [l1, l2, l3] (可能为 None)
         labels: 身份标签
         modal_ids: 模态标签 (0/1)
         """
@@ -30,7 +30,8 @@ class InnovationLoss(nn.Module):
 
         # --- 1. MSEL Loss (PMT) ---
         # 目标：同ID内，RGB-RGB距离 应等于 RGB-SAR距离
-        if self.msel_w > 0:
+        # [修改点] 增加非空判断 feat_shared is not None
+        if self.msel_w > 0 and feat_shared is not None:
             loss_msel = self._compute_msel(feat_shared, labels, modal_ids)
             loss_total += self.msel_w * loss_msel
 
@@ -41,7 +42,7 @@ class InnovationLoss(nn.Module):
             loss_total += self.orth_w * loss_orth
 
         # --- 3. Consistency Loss (CMT/FACENet) ---
-        # 目标：对于同一批数据，RGB样本的平均预测分布应与SAR样本的平均预测分布相似 (Global Alignment)
+        # 目标：对于同一批数据，RGB样本的平均预测分布应与SAR样本的平均预测分布相似
         if self.cons_w > 0 and logits_list is not None:
             # 使用第一个主分支的logits计算
             loss_cons = self._compute_consistency(logits_list[0], modal_ids)
@@ -76,7 +77,11 @@ class InnovationLoss(nn.Module):
                     # MSEL核心：惩罚 (跨模态距离 - 同模态距离) 的差异
                     loss += (dist_cross - dist_intra).pow(2)
                     count += 1
-        return loss / (count + 1e-6)
+
+        if count > 0:
+            return loss / count
+        else:
+            return torch.tensor(0.0).to(features.device)
 
     def _compute_orth(self, feats):
         loss = 0.0
@@ -92,6 +97,8 @@ class InnovationLoss(nn.Module):
         # 基于分布对齐的简化一致性损失
         rgb_logits = logits[modal_ids == 0]
         sar_logits = logits[modal_ids == 1]
+
+        # 增加判断，防止只有单模态数据时报错
         if len(rgb_logits) == 0 or len(sar_logits) == 0:
             return torch.tensor(0.0).to(logits.device)
 
