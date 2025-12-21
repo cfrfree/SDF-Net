@@ -19,7 +19,11 @@ def read_image(img_path):
             img = Image.open(img_path)
             got_img = True
         except IOError:
-            print("IOError incurred when reading '{}'. Will redo. Don't worry. Just chill.".format(img_path))
+            print(
+                "IOError incurred when reading '{}'. Will redo. Don't worry. Just chill.".format(
+                    img_path
+                )
+            )
             pass
     return img
 
@@ -88,9 +92,21 @@ class BaseImageDataset(BaseDataset):
         print("  subset   | # ids | # images | # cameras")
         print("  ----------------------------------------")
         if train is not None:
-            print("  train    | {:5d} | {:8d} | {:9d}".format(num_train_pids, num_train_imgs, num_train_cams))
-        print("  query    | {:5d} | {:8d} | {:9d}".format(num_query_pids, num_query_imgs, num_query_cams))
-        print("  gallery  | {:5d} | {:8d} | {:9d}".format(num_gallery_pids, num_gallery_imgs, num_gallery_cams))
+            print(
+                "  train    | {:5d} | {:8d} | {:9d}".format(
+                    num_train_pids, num_train_imgs, num_train_cams
+                )
+            )
+        print(
+            "  query    | {:5d} | {:8d} | {:9d}".format(
+                num_query_pids, num_query_imgs, num_query_cams
+            )
+        )
+        print(
+            "  gallery  | {:5d} | {:8d} | {:9d}".format(
+                num_gallery_pids, num_gallery_imgs, num_gallery_cams
+            )
+        )
         print("  ----------------------------------------")
 
 
@@ -102,7 +118,9 @@ class ImageDataset(Dataset):
 
         # [修改点] 开启内存缓存
         # 对于 HOSS 这种小数据集，这会极大地加速训练
-        print(f"Initializing Dataset (Pair={pair}). Loading {len(self.dataset)} images to RAM Cache...")
+        print(
+            f"Initializing Dataset (Pair={pair}). Loading {len(self.dataset)} images to RAM Cache..."
+        )
         self.cached_samples = []
 
         # 预加载所有数据
@@ -117,7 +135,9 @@ class ImageDataset(Dataset):
                     img_pil, img_size_meta = self._load_raw_image(img_path)
                     img_name = img_path.split("/")[-1]
                     # 存入缓存
-                    cached_pair_group.append((img_pil, pid, camid, img_name, img_size_meta))
+                    cached_pair_group.append(
+                        (img_pil, pid, camid, img_name, img_size_meta)
+                    )
                 self.cached_samples.append(cached_pair_group)
             else:
                 # 处理 普通 模式: dataset[i] 是 tuple (path, pid, cam, track)
@@ -125,7 +145,9 @@ class ImageDataset(Dataset):
                 img_pil, img_size_meta = self._load_raw_image(img_path)
                 img_name = img_path.split("/")[-1]
                 # 存入缓存
-                self.cached_samples.append((img_pil, pid, camid, trackid, img_name, img_size_meta))
+                self.cached_samples.append(
+                    (img_pil, pid, camid, trackid, img_name, img_size_meta)
+                )
 
         print("RAM Cache Loaded Successfully!")
 
@@ -174,7 +196,9 @@ class ImageDataset(Dataset):
             return imgs
         else:
             # 普通模式
-            img_pil, pid, camid, trackid, img_name, img_size_meta = self.cached_samples[index]
+            img_pil, pid, camid, trackid, img_name, img_size_meta = self.cached_samples[
+                index
+            ]
 
             if self.transform is not None:
                 img_tensor = self.transform(img_pil)

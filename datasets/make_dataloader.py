@@ -1,7 +1,8 @@
 import torch
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
-
+import numpy as np
+import random
 from .bases import ImageDataset
 from timm.data.random_erasing import RandomErasing
 from .sampler import RandomIdentitySampler
@@ -16,6 +17,12 @@ __factory = {
     "HOSS": HOSS,
     "Pretrain": Pretrain,
 }
+
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def train_collate_fn(batch):
@@ -65,17 +72,12 @@ def make_dataloader(cfg, is_train=True):
             T.Resize(cfg.INPUT.SIZE_TRAIN, interpolation=3),
             T.RandomHorizontalFlip(p=cfg.INPUT.PROB),
             T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0),
-            T.RandomApply(
-                [T.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0))], p=0.3
-            ),
+            # T.RandomApply([T.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0))], p=0.3),
             T.Pad(cfg.INPUT.PADDING),
             T.RandomCrop(cfg.INPUT.SIZE_TRAIN),
             T.ToTensor(),
             T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
-            RandomErasing(
-                probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"
-            ),
-            # RandomErasing(probability=cfg.INPUT.RE_PROB, mean=cfg.INPUT.PIXEL_MEAN)
+            RandomErasing(probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"),
         ]
     )
 
@@ -89,9 +91,7 @@ def make_dataloader(cfg, is_train=True):
 
     num_workers = cfg.DATALOADER.NUM_WORKERS
 
-    dataset = __factory[cfg.DATASETS.NAMES](
-        root=cfg.DATASETS.ROOT_DIR, is_train=is_train
-    )
+    dataset = __factory[cfg.DATASETS.NAMES](root=cfg.DATASETS.ROOT_DIR, is_train=is_train)
     if is_train:
         train_set = ImageDataset(dataset.train, train_transforms)
         train_set_normal = ImageDataset(dataset.train, val_transforms)
@@ -103,23 +103,23 @@ def make_dataloader(cfg, is_train=True):
             shuffle=False,
             num_workers=num_workers,
             collate_fn=val_collate_fn,
+            worker_init_fn=seed_worker,
+            generator=torch.Generator().manual_seed(cfg.SOLVER.SEED),
         )
         if "triplet" in cfg.DATALOADER.SAMPLER:
             if cfg.MODEL.DIST_TRAIN:
                 print("DIST_TRAIN START")
                 mini_batch_size = cfg.SOLVER.IMS_PER_BATCH // dist.get_world_size()
-                data_sampler = RandomIdentitySampler_DDP(
-                    dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE
-                )
-                batch_sampler = torch.utils.data.sampler.BatchSampler(
-                    data_sampler, mini_batch_size, True
-                )
+                data_sampler = RandomIdentitySampler_DDP(dataset.train, cfg.SOLVER.IMS_PER_BATCH, cfg.DATALOADER.NUM_INSTANCE)
+                batch_sampler = torch.utils.data.sampler.BatchSampler(data_sampler, mini_batch_size, True)
                 train_loader = DataLoader(
                     train_set,
                     num_workers=num_workers,
                     batch_sampler=batch_sampler,
                     collate_fn=train_collate_fn,
                     pin_memory=True,
+                    worker_init_fn=seed_worker,
+                    generator=torch.Generator().manual_seed(cfg.SOLVER.SEED),
                 )
             else:
                 train_loader = DataLoader(
@@ -132,6 +132,8 @@ def make_dataloader(cfg, is_train=True):
                     ),
                     num_workers=num_workers,
                     collate_fn=train_collate_fn,
+                    worker_init_fn=seed_worker,
+                    generator=torch.Generator().manual_seed(cfg.SOLVER.SEED),
                 )
         elif cfg.DATALOADER.SAMPLER == "softmax":
             print("using softmax sampler")
@@ -141,13 +143,11 @@ def make_dataloader(cfg, is_train=True):
                 shuffle=True,
                 num_workers=num_workers,
                 collate_fn=train_collate_fn,
+                worker_init_fn=seed_worker,
+                generator=torch.Generator().manual_seed(cfg.SOLVER.SEED),
             )
         else:
-            print(
-                "unsupported sampler! expected softmax or triplet but got {}".format(
-                    cfg.SAMPLER
-                )
-            )
+            print("unsupported sampler! expected softmax or triplet but got {}".format(cfg.SAMPLER))
     else:
         train_loader = None
         train_loader_normal = None
@@ -185,9 +185,7 @@ def make_dataloader_pair(cfg):
             T.RandomCrop(cfg.INPUT.SIZE_TRAIN),
             T.ToTensor(),
             T.Normalize(mean=cfg.INPUT.PIXEL_MEAN, std=cfg.INPUT.PIXEL_STD),
-            RandomErasing(
-                probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"
-            ),
+            RandomErasing(probability=cfg.INPUT.RE_PROB, mode="pixel", max_count=1, device="cpu"),
         ]
     )
 

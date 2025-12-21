@@ -14,11 +14,20 @@ from config import cfg
 
 
 def set_seed(seed):
+    # 1. 固定 Python 原生随机种子
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    # 2. 固定 Numpy 随机种子
+    np.random.seed(seed)
+
+    # 3. 固定 PyTorch 随机种子 (CPU + GPU)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    torch.cuda.manual_seed_all(seed)  # 如果使用多GPU
+
+    # 4. 保证 CuDNN 算法的确定性 (关键)
+    # 这一步会降低训练速度，但能保证结果一致
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
 

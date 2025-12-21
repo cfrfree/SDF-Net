@@ -22,7 +22,9 @@ def do_train_pair(cfg, model, train_loader_pair, optimizer, scheduler, local_ran
         model.to(local_rank)
         if torch.cuda.device_count() > 1 and cfg.MODEL.DIST_TRAIN:
             print(f"Using {torch.cuda.device_count()} GPUs for training")
-            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)
+            model = torch.nn.parallel.DistributedDataParallel(
+                model, device_ids=[local_rank], find_unused_parameters=True
+            )
 
     loss_meter = AverageMeter()
     scaler = amp.GradScaler()
@@ -67,7 +69,12 @@ def do_train_pair(cfg, model, train_loader_pair, optimizer, scheduler, local_ran
             # Print Log only at the end of epoch
             if not cfg.MODEL.DIST_TRAIN or dist.get_rank() == 0:
                 current_lr = scheduler._get_lr(epoch)[0]
-                logger.info(f"Epoch[{epoch}] done. " f"Loss: {loss_meter.avg:.3f}, " f"Lr: {current_lr:.2e}, " f"Time: {time_per_epoch:.2f}s")
+                logger.info(
+                    f"Epoch[{epoch}] done. "
+                    f"Loss: {loss_meter.avg:.3f}, "
+                    f"Lr: {current_lr:.2e}, "
+                    f"Time: {time_per_epoch:.2f}s"
+                )
 
             if epoch % checkpoint_period == 0:
                 if not cfg.MODEL.DIST_TRAIN or dist.get_rank() == 0:
@@ -103,7 +110,9 @@ def do_train(
         model.to(local_rank)
         if torch.cuda.device_count() > 1 and cfg.MODEL.DIST_TRAIN:
             print(f"Using {torch.cuda.device_count()} GPUs for training")
-            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], find_unused_parameters=True)
+            model = torch.nn.parallel.DistributedDataParallel(
+                model, device_ids=[local_rank], find_unused_parameters=True
+            )
 
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
@@ -129,7 +138,9 @@ def do_train(
         scheduler.step(epoch)
         model.train()
 
-        for n_iter, (img, vid, target_cam, target_view, img_wh) in enumerate(train_loader):
+        for n_iter, (img, vid, target_cam, target_view, img_wh) in enumerate(
+            train_loader
+        ):
             optimizer.zero_grad()
             optimizer_center.zero_grad()
             img = img.to(device)
@@ -142,13 +153,19 @@ def do_train(
 
             with amp.autocast(enabled=True):
                 if cfg.MODEL.DISENTANGLE:
-                    score_fuse, feat_fuse, feat_shared, feat_spec = model(img, target, cam_label=target_cam, img_wh=img_wh)
+                    score_fuse, feat_fuse, feat_shared, feat_spec = model(
+                        img, target, cam_label=target_cam, img_wh=img_wh
+                    )
                     cls_score = score_fuse
                     loss_base = loss_fn(score_fuse, feat_fuse, target, target_cam)
 
-                    f_shared_norm = torch.nn.functional.normalize(feat_shared, p=2, dim=1)
+                    f_shared_norm = torch.nn.functional.normalize(
+                        feat_shared, p=2, dim=1
+                    )
                     f_spec_norm = torch.nn.functional.normalize(feat_spec, p=2, dim=1)
-                    loss_orth_calc = torch.mean(torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1)))
+                    loss_orth_calc = torch.mean(
+                        torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1))
+                    )
                     loss_orth = cfg.MODEL.ORTH_LOSS_WEIGHT * loss_orth_calc
 
                     loss = loss_base + loss_orth
@@ -249,7 +266,9 @@ def do_inference(cfg, model, val_loader, num_query):
     model.eval()
     img_path_list = []
 
-    for n_iter, (img, pid, camid, camids, target_view, imgpath, img_wh) in enumerate(val_loader):
+    for n_iter, (img, pid, camid, camids, target_view, imgpath, img_wh) in enumerate(
+        val_loader
+    ):
         with torch.no_grad():
             img = img.to(device)
             camids = camids.to(device)
