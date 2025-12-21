@@ -28,9 +28,7 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False):
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (
-        x.ndim - 1
-    )  # work with diff dim tensors, not just 2D ConvNets
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
     random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
     random_tensor.floor_()  # binarize
     output = x.div(keep_prob) * random_tensor
@@ -100,11 +98,7 @@ class Attention(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = (
             qkv[0],
             qkv[1],
@@ -181,9 +175,7 @@ class PatchEmbed(nn.Module):
         self.patch_size = patch_size
         self.num_patches = num_patches
 
-        self.proj = nn.Conv2d(
-            in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
-        )
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -200,9 +192,7 @@ class HybridEmbed(nn.Module):
     Extract feature map from CNN, flatten, project to embedding dim.
     """
 
-    def __init__(
-        self, backbone, img_size=224, feature_size=None, in_chans=3, embed_dim=768
-    ):
+    def __init__(self, backbone, img_size=224, feature_size=None, in_chans=3, embed_dim=768):
         super().__init__()
         assert isinstance(backbone, nn.Module)
         img_size = to_2tuple(img_size)
@@ -237,28 +227,20 @@ class HybridEmbed(nn.Module):
 
 
 class PatchEmbed_overlap(nn.Module):
-    def __init__(
-        self, img_size=224, patch_size=16, stride_size=20, in_chans=3, embed_dim=768
-    ):
+    def __init__(self, img_size=224, patch_size=16, stride_size=20, in_chans=3, embed_dim=768):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
         stride_size_tuple = to_2tuple(stride_size)
         self.num_x = (img_size[1] - patch_size[1]) // stride_size_tuple[1] + 1
         self.num_y = (img_size[0] - patch_size[0]) // stride_size_tuple[0] + 1
-        print(
-            "using stride: {}, and patch number is num_y{} * num_x{}".format(
-                stride_size, self.num_y, self.num_x
-            )
-        )
+        print("using stride: {}, and patch number is num_y{} * num_x{}".format(stride_size, self.num_y, self.num_x))
         num_patches = self.num_x * self.num_y
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = num_patches
 
-        self.proj = nn.Conv2d(
-            in_chans, embed_dim, kernel_size=patch_size, stride=stride_size
-        )
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride_size)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -321,9 +303,7 @@ class TransOSS(nn.Module):
     ):
         super().__init__()
         self.num_classes = num_classes
-        self.num_features = self.embed_dim = (
-            embed_dim  # num_features for consistency with other models
-        )
+        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.local_feature = local_feature
         self.disentangle = disentangle
         if hybrid_backbone is not None:
@@ -382,9 +362,7 @@ class TransOSS(nn.Module):
         print("using drop_path rate is : {}".format(drop_path_rate))
 
         self.pos_drop = nn.Dropout(p=drop_rate)
-        dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, depth)
-        ]  # stochastic depth decay rule
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
 
         self.blocks = nn.ModuleList(
             [
@@ -406,9 +384,7 @@ class TransOSS(nn.Module):
 
         self.norm = norm_layer(embed_dim)
         # Classifier head
-        self.fc = (
-            nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        )
+        self.fc = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         trunc_normal_(self.cls_token, std=0.02)
         trunc_normal_(self.pos_embed, std=0.02)
 
@@ -437,9 +413,7 @@ class TransOSS(nn.Module):
 
     def reset_classifier(self, num_classes, global_pool=""):
         self.num_classes = num_classes
-        self.fc = (
-            nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        )
+        self.fc = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x, camera_id, img_wh):
         B = x.shape[0]
@@ -447,9 +421,7 @@ class TransOSS(nn.Module):
         sar_id = torch.where(camera_id == 1)[0]
         x_rgb = self.patch_embed(x[rgb_id])
         x_sar = self.patch_embed_SAR(x[sar_id])
-        x = torch.zeros(
-            B, x_rgb.shape[1], x_rgb.shape[2], dtype=x_rgb.dtype, device=x_rgb.device
-        )
+        x = torch.zeros(B, x_rgb.shape[1], x_rgb.shape[2], dtype=x_rgb.dtype, device=x_rgb.device)
         x[rgb_id] = x_rgb
         x[sar_id] = x_sar
 
@@ -488,19 +460,14 @@ class TransOSS(nn.Module):
                 x = blk(x)
             x = self.norm(x)
             if self.disentangle:
+                # x[:, 0] -> Shared, x[:, 1] -> Specific
                 return x[:, 0], x[:, 1]
             else:
+                # 原始逻辑，只返回 cls_token
                 return x[:, 0]
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        if self.disentangle:
-            # 开启解耦：接收两个特征
-            feat_shared, feat_spec = self.forward_features(x, cam_label, img_wh)
-            return feat_shared, feat_spec
-        else:
-            # 关闭解耦：只接收一个特征 (原始逻辑)
-            x = self.forward_features(x, cam_label, img_wh)
-            return x
+        return self.forward_features(x, cam_label, img_wh)
 
     def load_param(self, model_path):
         param_dict = torch.load(model_path, map_location="cpu")
@@ -533,9 +500,7 @@ class TransOSS(nn.Module):
                     # Case A: Patch 数量一致（空间分辨率匹配），不需要 resize_pos_embed
                     # 仅处理因 disentangle 导致的 Token 数量不一致
                     if self.disentangle and v.shape[1] == self.pos_embed.shape[1] - 1:
-                        print(
-                            f"Adapting pos_embed for disentangle (spatial match): {v.shape} -> {self.pos_embed.shape}"
-                        )
+                        print(f"Adapting pos_embed for disentangle (spatial match): {v.shape} -> {self.pos_embed.shape}")
                         cls_pos = v[:, 0:1]
                         patch_pos = v[:, 1:]
                         # 复制 CLS Token 的位置编码给 Specific Token
@@ -543,12 +508,7 @@ class TransOSS(nn.Module):
                 else:
                     # Case B: Patch 数量不一致（例如加载 ImageNet 权重），需要 resize
                     print(f"Resizing pos_embed: {v.shape} -> {self.pos_embed.shape}")
-                    v = resize_pos_embed(
-                        v,
-                        self.pos_embed,
-                        self.patch_embed.num_y,
-                        self.patch_embed.num_x,
-                    )
+                    v = resize_pos_embed(v, self.pos_embed, self.patch_embed.num_y, self.patch_embed.num_x)
 
                     # resize 后，如果是 disentangle 模式，仍然少一个 Token，需要补上
                     if self.disentangle and v.shape[1] == self.pos_embed.shape[1] - 1:
@@ -566,19 +526,11 @@ class TransOSS(nn.Module):
                 if "mie_embed" in k:
                     print(f"{k} not in the model")
                     continue
-                print(
-                    "shape do not match in k :{}: param_dict{} vs self.state_dict(){}".format(
-                        k, v.shape, self.state_dict()[k].shape
-                    )
-                )
+                print("shape do not match in k :{}: param_dict{} vs self.state_dict(){}".format(k, v.shape, self.state_dict()[k].shape))
         if "patch_embed_SAR.proj.bias" not in param_dict.keys():
             print("patch_embed_SAR not in the pth")
-            self.state_dict()["patch_embed_SAR.proj.bias"].copy_(
-                self.state_dict()["patch_embed.proj.bias"]
-            )
-            self.state_dict()["patch_embed_SAR.proj.weight"].copy_(
-                self.state_dict()["patch_embed.proj.weight"]
-            )
+            self.state_dict()["patch_embed_SAR.proj.bias"].copy_(self.state_dict()["patch_embed.proj.bias"])
+            self.state_dict()["patch_embed_SAR.proj.weight"].copy_(self.state_dict()["patch_embed.proj.weight"])
 
 
 def resize_pos_embed(posemb, posemb_new, hight, width):
@@ -588,11 +540,7 @@ def resize_pos_embed(posemb, posemb_new, hight, width):
     ntok_new -= 1
 
     gs_old = int(math.sqrt(len(posemb_grid)))
-    print(
-        "Resized position embedding from size:{} to size: {} with height:{} width: {}".format(
-            posemb.shape, posemb_new.shape, hight, width
-        )
-    )
+    print("Resized position embedding from size:{} to size: {} with height:{} width: {}".format(posemb.shape, posemb_new.shape, hight, width))
     posemb_grid = posemb_grid.reshape(1, gs_old, gs_old, -1).permute(0, 3, 1, 2)
     posemb_grid = F.interpolate(posemb_grid, size=(hight, width), mode="bilinear")
     posemb_grid = posemb_grid.permute(0, 2, 3, 1).reshape(1, hight * width, -1)
@@ -643,8 +591,7 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
 
     if (mean < a - 2 * std) or (mean > b + 2 * std):
         print(
-            "mean is more than 2 std from [a, b] in nn.init.trunc_normal_. "
-            "The distribution of values may be incorrect.",
+            "mean is more than 2 std from [a, b] in nn.init.trunc_normal_. " "The distribution of values may be incorrect.",
         )
 
     with torch.no_grad():

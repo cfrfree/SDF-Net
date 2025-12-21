@@ -3,7 +3,6 @@ import torch.nn as nn
 from .backbones.resnet import ResNet, Bottleneck
 from .backbones.vit_transoss import vit_base_patch16_224_TransOSS
 from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
-from .backbones.dee import DEE_Module
 
 
 def shuffle_unit(features, shift, group, begin=1):
@@ -65,9 +64,7 @@ class Backbone(nn.Module):
 
         if model_name == "resnet50":
             self.in_planes = 2048
-            self.base = ResNet(
-                last_stride=last_stride, block=Bottleneck, layers=[3, 4, 6, 3]
-            )
+            self.base = ResNet(last_stride=last_stride, block=Bottleneck, layers=[3, 4, 6, 3])
             print("using resnet50 as a backbone")
         else:
             print("unsupported backbone! but got {}".format(model_name))
@@ -88,9 +85,7 @@ class Backbone(nn.Module):
     def forward(self, x, label=None):  # label is unused if self.cos_layer == 'no'
         x = self.base(x)
         global_feat = nn.functional.avg_pool2d(x, x.shape[2:4])
-        global_feat = global_feat.view(
-            global_feat.shape[0], -1
-        )  # flatten to (bs, 2048)
+        global_feat = global_feat.view(global_feat.shape[0], -1)  # flatten to (bs, 2048)
 
         if self.neck == "no":
             feat = global_feat
@@ -125,9 +120,7 @@ class Backbone(nn.Module):
 
 
 class build_transformer(nn.Module):
-    def __init__(
-        self, num_classes, camera_num, cfg, factory, logit_scale_init_value=2.6592
-    ):
+    def __init__(self, num_classes, camera_num, cfg, factory, logit_scale_init_value=2.6592):
         super(build_transformer, self).__init__()
         last_stride = cfg.MODEL.LAST_STRIDE
         model_path = cfg.MODEL.PRETRAIN_PATH
@@ -139,13 +132,8 @@ class build_transformer(nn.Module):
         self.in_planes = 768
         self.model_type = cfg.MODEL.TRANSFORMER_TYPE
         self.disentangle = cfg.MODEL.DISENTANGLE
-        self.dee_enable = cfg.MODEL.DEE_ENABLE
 
-        print(
-            "using Transformer_type: {} as a backbone".format(
-                cfg.MODEL.TRANSFORMER_TYPE
-            )
-        )
+        print("using Transformer_type: {} as a backbone".format(cfg.MODEL.TRANSFORMER_TYPE))
 
         if cfg.MODEL.MIE:
             camera_num = camera_num
@@ -165,18 +153,12 @@ class build_transformer(nn.Module):
                 disentangle=self.disentangle,
             )
         else:
-            raise ValueError(
-                "Unsupported model type: {}".format(cfg.MODEL.TRANSFORMER_TYPE)
-            )
+            raise ValueError("Unsupported model type: {}".format(cfg.MODEL.TRANSFORMER_TYPE))
 
         self.num_classes = num_classes
         self.ID_LOSS_TYPE = cfg.MODEL.ID_LOSS_TYPE
         if self.ID_LOSS_TYPE == "arcface":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
+            print("using {} with s:{}, m: {}".format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
             self.classifier = Arcface(
                 self.in_planes,
                 self.num_classes,
@@ -184,11 +166,7 @@ class build_transformer(nn.Module):
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         elif self.ID_LOSS_TYPE == "cosface":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
+            print("using {} with s:{}, m: {}".format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
             self.classifier = Cosface(
                 self.in_planes,
                 self.num_classes,
@@ -196,11 +174,7 @@ class build_transformer(nn.Module):
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         elif self.ID_LOSS_TYPE == "amsoftmax":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
+            print("using {} with s:{}, m: {}".format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
             self.classifier = AMSoftmax(
                 self.in_planes,
                 self.num_classes,
@@ -208,11 +182,7 @@ class build_transformer(nn.Module):
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         elif self.ID_LOSS_TYPE == "circle":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
+            print("using {} with s:{}, m: {}".format(self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN))
             self.classifier = CircleLoss(
                 self.in_planes,
                 self.num_classes,
@@ -231,26 +201,7 @@ class build_transformer(nn.Module):
         self.bottleneck = nn.BatchNorm1d(self.in_planes)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
-        if self.dee_enable:
-            print(
-                "=========== Building DEE Modules (Innovation: Feature Expansion) ==========="
-            )
-            self.dee_module = DEE_Module(self.in_planes, num_branches=3)
-            self.dee_bns = nn.ModuleList(
-                [nn.BatchNorm1d(self.in_planes) for _ in range(3)]
-            )
-            self.dee_fcs = nn.ModuleList(
-                [
-                    nn.Linear(self.in_planes, self.num_classes, bias=False)
-                    for _ in range(3)
-                ]
-            )
 
-            for m in self.dee_bns:
-                m.bias.requires_grad_(False)
-                m.apply(weights_init_kaiming)
-            for m in self.dee_fcs:
-                m.apply(weights_init_classifier)
         self.train_pair = False
         self.logit_scale = nn.Parameter(torch.tensor(logit_scale_init_value))
 
@@ -276,60 +227,33 @@ class build_transformer(nn.Module):
         self.train_pair = False
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        """
-        返回: (score_fuse, feat_fuse, feat_shared, feat_spec, dee_outputs)
-        """
-        # -------------------------------------------------------
-        # Part 1: 原有逻辑 (解耦 + 简单融合) - 保持不变
-        # -------------------------------------------------------
         if self.disentangle:
             feat_shared, feat_spec = self.base(x, cam_label=cam_label, img_wh=img_wh)
-            # [原封不动] 您的原始融合策略
-            feat_fuse = feat_shared + feat_spec
+            if self.training:
+                feat_fuse = feat_shared + feat_spec
+                feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
+                if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
+                    score_fuse = self.classifier(feat_fuse_bn, label)
+                else:
+                    score_fuse = self.classifier(feat_fuse_bn)
+                return score_fuse, feat_fuse, feat_shared, feat_spec
+            else:
+                feat_fuse = feat_shared + feat_spec
+                return self.bottleneck_fuse(feat_fuse)
         else:
             global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
-            feat_fuse = global_feat
-            feat_shared = None
-            feat_spec = None
-
-        # 主分类头
-        if self.disentangle:
-            feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
-        else:
-            feat_fuse_bn = self.bottleneck(feat_fuse)
-
-        if self.training:
-            if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
-                score_fuse = self.classifier(feat_fuse_bn, label)
+            if self.training:
+                feat = self.bottleneck(global_feat)
+                if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
+                    cls_score = self.classifier(feat, label)
+                else:
+                    cls_score = self.classifier(feat)
+                return cls_score, global_feat
             else:
-                score_fuse = self.classifier(feat_fuse_bn)
-        else:
-            # 推理阶段
-            if self.disentangle:
-                return self.bottleneck_fuse(feat_fuse)
-            elif self.neck_feat == "after":
-                return self.bottleneck(feat_fuse)
-            else:
-                return feat_fuse
-
-        # -------------------------------------------------------
-        # Part 2: DEE 模块 (独立扩展) - 仅在开启时运行
-        # -------------------------------------------------------
-        dee_outputs = None
-        if self.training and self.dee_enable:
-            dee_feats_raw = self.dee_module(feat_fuse)
-
-            dee_scores = []
-            for i, f_raw in enumerate(dee_feats_raw):
-                f_bn = self.dee_bns[i](f_raw)
-                cls_s = self.dee_fcs[i](f_bn)
-                dee_scores.append(cls_s)
-
-            # 打包 DEE 输出
-            dee_outputs = (dee_scores, dee_feats_raw)
-
-        # 始终返回 5 个值，没有值的位填 None
-        return score_fuse, feat_fuse, feat_shared, feat_spec, dee_outputs
+                if self.neck_feat == "after":
+                    return self.bottleneck(global_feat)
+                else:
+                    return global_feat
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)
