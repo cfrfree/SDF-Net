@@ -122,6 +122,14 @@ def do_train(
     evaluator = R1_mAP_eval(num_query, max_rank=50, feat_norm=cfg.TEST.FEAT_NORM)
     scaler = amp.GradScaler()
 
+    # ====================== 初始化最佳指标记录变量 ======================
+    best_mAP = 0.0
+    best_mAP_epoch = 0
+    best_mAP_r1 = 0.0
+    best_mAP_r5 = 0.0
+    best_mAP_r10 = 0.0
+    # =======================================================================
+
     # train
     if torch.cuda.device_count() > 1 and cfg.MODEL.DIST_TRAIN:
         model.module.train_with_single()
@@ -243,9 +251,41 @@ def do_train(
                 for r in [1, 5, 10]:
                     logger.info(f"CMC curve, Rank-{r:<3}: {cmc[r - 1]:.1%}")
 
+                # ====================== 更新最佳指标并保存最优权重 ======================
+                if mAP > best_mAP:
+                    best_mAP = mAP
+                    best_mAP_epoch = epoch
+                    best_mAP_r1 = cmc[0]  # Rank-1 对应 cmc 第0个元素
+                    best_mAP_r5 = cmc[4]  # Rank-5 对应 cmc 第4个元素
+                    best_mAP_r10 = cmc[9]  # Rank-10 对应 cmc 第9个元素
+
+                    # 保存最优权重为 best.pth
+                    best_ckpt_path = os.path.join(cfg.OUTPUT_DIR, "best.pth")
+                    torch.save(model.state_dict(), best_ckpt_path)
+
+                    logger.info(
+                        f"Update Best mAP: {best_mAP:.1%} at Epoch {best_mAP_epoch}"
+                    )
+                    logger.info(f"Save Best Weights to: {best_ckpt_path}")
+                # =======================================================================
+
                 torch.cuda.empty_cache()
             if cfg.MODEL.DIST_TRAIN:
                 dist.barrier()
+
+    # ====================== 训练结束后输出最佳指标 ======================
+    if not cfg.MODEL.DIST_TRAIN or dist.get_rank() == 0:
+        logger.info("=" * 50)
+        logger.info("Training Finished! Best Validation Metrics:")
+        logger.info(f"Best mAP: {best_mAP:.1%} (at Epoch {best_mAP_epoch})")
+        logger.info(f"Corresponding Rank-1: {best_mAP_r1:.1%}")
+        logger.info(f"Corresponding Rank-5: {best_mAP_r5:.1%}")
+        logger.info(f"Corresponding Rank-10: {best_mAP_r10:.1%}")
+        logger.info(
+            f"Best Weights Saved at: {os.path.join(cfg.OUTPUT_DIR, 'best.pth')}"
+        )
+        logger.info("=" * 50)
+    # =======================================================================
 
 
 def do_inference(cfg, model, val_loader, num_query):

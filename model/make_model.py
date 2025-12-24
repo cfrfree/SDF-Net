@@ -138,6 +138,18 @@ class build_transformer(nn.Module):
         self.in_planes = 768
         self.model_type = cfg.MODEL.TRANSFORMER_TYPE
         self.disentangle = cfg.MODEL.DISENTANGLE
+        # 'sum'      : (D) FSS (Your Method) - [feat_shared + feat_spec]
+        # 'shared'   : (A) Shared only       - [feat_shared]
+        # 'specific' : (B) Specific only     - [feat_spec]
+        # 'concat'   : (C) Concat            - [cat(feat_shared, feat_spec)]
+        self.ablation_mode = cfg.MODEL.ABLATION_MODE
+        print(f"Current Ablation Mode: {self.ablation_mode}")
+        if self.disentangle and self.ablation_mode == "concat":
+            # 如果是 Concat 模式，融合特征维度是 2倍 (768 * 2 = 1536)
+            fusion_dim = self.in_planes * 2
+        else:
+            # 其他模式 (Sum, Shared, Specific) 维度保持 768
+            fusion_dim = self.in_planes
 
         print(
             "using Transformer_type: {} as a backbone".format(
@@ -170,59 +182,39 @@ class build_transformer(nn.Module):
         self.num_classes = num_classes
         self.ID_LOSS_TYPE = cfg.MODEL.ID_LOSS_TYPE
         if self.ID_LOSS_TYPE == "arcface":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
             self.classifier = Arcface(
-                self.in_planes,
+                fusion_dim,
                 self.num_classes,
                 s=cfg.SOLVER.COSINE_SCALE,
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         elif self.ID_LOSS_TYPE == "cosface":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
             self.classifier = Cosface(
-                self.in_planes,
+                fusion_dim,
                 self.num_classes,
                 s=cfg.SOLVER.COSINE_SCALE,
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         elif self.ID_LOSS_TYPE == "amsoftmax":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
             self.classifier = AMSoftmax(
-                self.in_planes,
+                fusion_dim,
                 self.num_classes,
                 s=cfg.SOLVER.COSINE_SCALE,
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         elif self.ID_LOSS_TYPE == "circle":
-            print(
-                "using {} with s:{}, m: {}".format(
-                    self.ID_LOSS_TYPE, cfg.SOLVER.COSINE_SCALE, cfg.SOLVER.COSINE_MARGIN
-                )
-            )
             self.classifier = CircleLoss(
-                self.in_planes,
+                fusion_dim,
                 self.num_classes,
                 s=cfg.SOLVER.COSINE_SCALE,
                 m=cfg.SOLVER.COSINE_MARGIN,
             )
         else:
-            self.classifier = nn.Linear(self.in_planes, self.num_classes, bias=False)
+            self.classifier = nn.Linear(fusion_dim, self.num_classes, bias=False)
             self.classifier.apply(weights_init_classifier)
 
         if self.disentangle:
-            self.bottleneck_fuse = nn.BatchNorm1d(self.in_planes)
+            self.bottleneck_fuse = nn.BatchNorm1d(fusion_dim)
             self.bottleneck_fuse.bias.requires_grad_(False)
             self.bottleneck_fuse.apply(weights_init_kaiming)
 
@@ -255,42 +247,64 @@ class build_transformer(nn.Module):
         self.train_pair = False
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
+        # 1. 特征提取
         if self.disentangle:
             feat_shared, feat_spec = self.base(x, cam_label=cam_label, img_wh=img_wh)
-            if self.training:
+
+            # ================= [消融实验逻辑] =================
+            if self.ablation_mode == "sum":  # (D) FSS (Sum)
                 feat_fuse = feat_shared + feat_spec
-                feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
-                if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
-                    score_fuse = self.classifier(feat_fuse_bn, label)
-                else:
-                    score_fuse = self.classifier(feat_fuse_bn)
-                return score_fuse, feat_fuse, feat_shared, feat_spec
+
+            elif self.ablation_mode == "shared":  # (A) Shared only
+                feat_fuse = feat_shared
+
+            elif self.ablation_mode == "specific":  # (B) Specific only
+                feat_fuse = feat_spec
+
+            elif self.ablation_mode == "concat":  # (C) Concat
+                feat_fuse = torch.cat([feat_shared, feat_spec], dim=1)  # Dim: 1536
+
             else:
-                feat_fuse = feat_shared + feat_spec
-                return self.bottleneck_fuse(feat_fuse)
+                raise ValueError(f"Unknown ablation mode: {self.ablation_mode}")
+            # ================================================
+
         else:
             global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
-            if self.training:
-                feat = self.bottleneck(global_feat)
-                if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
-                    cls_score = self.classifier(feat, label)
-                else:
-                    cls_score = self.classifier(feat)
-                return cls_score, global_feat
+            feat_fuse = global_feat
+            feat_shared = None
+            feat_spec = None
+
+        # 2. 分类头处理
+        if self.disentangle:
+            feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
+        else:
+            feat_fuse_bn = self.bottleneck(feat_fuse)
+
+        # 3. 返回结果
+        if self.training:
+            if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
+                score_fuse = self.classifier(feat_fuse_bn, label)
             else:
-                if self.neck_feat == "after":
-                    return self.bottleneck(global_feat)
-                else:
-                    return global_feat
+                score_fuse = self.classifier(feat_fuse_bn)
+
+            if self.disentangle:
+                return score_fuse, feat_fuse, feat_shared, feat_spec
+            else:
+                return score_fuse, feat_fuse
+        else:
+            if self.disentangle:
+                return self.bottleneck_fuse(feat_fuse)
+            elif self.neck_feat == "after":
+                return self.bottleneck(feat_fuse)
+            else:
+                return feat_fuse
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)
         if "state_dict" in param_dict:
             param_dict = param_dict["state_dict"]
-        # print(self.state_dict().keys())
         for i in param_dict:
             key = i.replace("module.", "")
-            # skip classifier params
             if key.startswith("classifier"):
                 continue
             self.state_dict()[key].copy_(param_dict[i])
