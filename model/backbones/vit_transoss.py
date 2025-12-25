@@ -428,6 +428,44 @@ class TransOSS(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
+    def _extract_structure_energy(self, x_patches):
+        """
+        计算 Feature Map 的梯度能量作为结构表征
+        x_patches: [B, N, C] 纯图像 Patch 的特征
+        """
+        B, N, C = x_patches.shape
+        H, W = self.patch_embed.num_y, self.patch_embed.num_x
+        
+        # 1. Reshape 回图像空间 [B, H, W, C]
+        # 注意：如果 N != H*W (例如有 resize)，这里需要做容错，但通常训练是固定的
+        if N != H * W:
+            # 简单处理：如果尺寸不对，尝试通过插值或 reshape 适配
+            # 这里假设 N 是标准的 H*W
+            S = int(N**0.5)
+            x_img = x_patches.reshape(B, S, S, C)
+        else:
+            x_img = x_patches.reshape(B, H, W, C)
+        
+        # 2. 计算梯度 (Sobel 的简化版：差分)
+        # 沿 H 方向的梯度 (dy)
+        grad_h = x_img[:, 1:, :, :] - x_img[:, :-1, :, :]
+        # 沿 W 方向的梯度 (dx)
+        grad_w = x_img[:, :, 1:, :] - x_img[:, :, :-1, :]
+        
+        # 3. 计算能量 E = |dx| + |dy|
+        # 我们希望得到 [B, C] 的向量，代表每个通道的"结构强度"
+        energy_h = torch.abs(grad_h).mean(dim=(1, 2)) # GAP over spatial
+        energy_w = torch.abs(grad_w).mean(dim=(1, 2)) # GAP over spatial
+        
+        f_struct = energy_h + energy_w # [B, C]
+        
+        # 可选：做一个 L2 Norm，让特征分布更稳定
+        f_struct = f_struct.unsqueeze(1) # [B, 1, C] 适配 instance_norm 输入
+        f_struct = torch.nn.functional.instance_norm(f_struct)
+        f_struct = f_struct.squeeze(1)   # [B, C]
+        
+        return f_struct
+
     @torch.jit.ignore
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
@@ -484,15 +522,29 @@ class TransOSS(nn.Module):
                 x = blk(x)
             return x
         else:
-            for blk in self.blocks:
+            f_struct = None
+            # 遍历 Block
+            for i, blk in enumerate(self.blocks):
                 x = blk(x)
+                # 在中间层提取结构特征 (例如第6层，index=5)
+                if i == 5: 
+                    # 确定 Patch 的索引范围
+                    start_idx = 2 if self.disentangle else 1
+                    end_idx = x.shape[1] 
+                    if hasattr(self, "wh_embed"):
+                        end_idx -= 1 # 假设 wh_token 在最后
+                    
+                    # [B, N_patches, C]
+                    x_patches = x[:, start_idx:end_idx, :] 
+                    f_struct = self._extract_structure_energy(x_patches)
+            
             x = self.norm(x)
             if self.disentangle:
                 # x[:, 0] -> Shared, x[:, 1] -> Specific
-                return x[:, 0], x[:, 1]
+                return x[:, 0], x[:, 1], f_struct
             else:
-                # 原始逻辑，只返回 cls_token
-                return x[:, 0]
+                # 原始逻辑，返回 cls_token 和结构特征
+                return x[:, 0], f_struct
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
         return self.forward_features(x, cam_label, img_wh)

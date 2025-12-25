@@ -89,7 +89,7 @@ if __name__ == "__main__":
 
     model = make_model(cfg, num_class=num_classes, camera_num=camera_num)
 
-    loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
+    loss_func, center_criterion, structure_loss_func = make_loss(cfg, num_classes=num_classes)
 
     optimizer, optimizer_center = make_optimizer(cfg, model, center_criterion)
 
@@ -107,4 +107,5 @@ if __name__ == "__main__":
         loss_func,
         num_query,
         args.local_rank,
+        structure_loss_func,
     )

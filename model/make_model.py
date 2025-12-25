@@ -249,7 +249,7 @@ class build_transformer(nn.Module):
     def forward(self, x, label=None, cam_label=None, img_wh=None):
         # 1. 特征提取
         if self.disentangle:
-            feat_shared, feat_spec = self.base(x, cam_label=cam_label, img_wh=img_wh)
+            feat_shared, feat_spec, f_struct = self.base(x, cam_label=cam_label, img_wh=img_wh)
 
             # ================= [消融实验逻辑] =================
             if self.ablation_mode == "sum":  # (D) FSS (Sum)
@@ -269,7 +269,7 @@ class build_transformer(nn.Module):
             # ================================================
 
         else:
-            global_feat = self.base(x, cam_label=cam_label, img_wh=img_wh)
+            global_feat, f_struct = self.base(x, cam_label=cam_label, img_wh=img_wh)
             feat_fuse = global_feat
             feat_shared = None
             feat_spec = None
@@ -288,9 +288,9 @@ class build_transformer(nn.Module):
                 score_fuse = self.classifier(feat_fuse_bn)
 
             if self.disentangle:
-                return score_fuse, feat_fuse, feat_shared, feat_spec
+                return score_fuse, feat_fuse, feat_shared, feat_spec, f_struct
             else:
-                return score_fuse, feat_fuse
+                return score_fuse, feat_fuse, f_struct
         else:
             if self.disentangle:
                 return self.bottleneck_fuse(feat_fuse)

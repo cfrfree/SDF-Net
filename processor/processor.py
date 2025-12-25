@@ -96,6 +96,7 @@ def do_train(
     loss_fn,
     num_query,
     local_rank,
+    structure_loss_func=None,
 ):
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
     eval_period = cfg.SOLVER.EVAL_PERIOD
@@ -118,6 +119,7 @@ def do_train(
     acc_meter = AverageMeter()
     loss_base_meter = AverageMeter()
     loss_orth_meter = AverageMeter()  # 新增：记录 Orth Loss
+    loss_struct_meter = AverageMeter()  # 新增：记录 Structure Loss
 
     evaluator = R1_mAP_eval(num_query, max_rank=50, feat_norm=cfg.TEST.FEAT_NORM)
     scaler = amp.GradScaler()
@@ -141,6 +143,7 @@ def do_train(
         acc_meter.reset()
         loss_base_meter.reset()
         loss_orth_meter.reset()  # 重置 Orth meter
+        loss_struct_meter.reset()  # 重置 Structure meter
         evaluator.reset()
 
         scheduler.step(epoch)
@@ -158,14 +161,15 @@ def do_train(
 
             # 初始化当前batch的 loss 记录变量
             current_loss_orth = 0.0
+            current_loss_struct = 0.0
 
             with amp.autocast(enabled=True):
                 if cfg.MODEL.DISENTANGLE:
-                    score_fuse, feat_fuse, feat_shared, feat_spec = model(
+                    score_fuse, feat_fuse, feat_shared, feat_spec, f_struct = model(
                         img, target, cam_label=target_cam, img_wh=img_wh
                     )
                     cls_score = score_fuse
-                    loss_base = loss_fn(score_fuse, feat_fuse, target, target_cam)
+                    loss_base = loss_fn(score_fuse, feat_fuse, target, target_cam, f_struct)
 
                     f_shared_norm = torch.nn.functional.normalize(
                         feat_shared, p=2, dim=1
@@ -176,13 +180,32 @@ def do_train(
                     )
                     loss_orth = cfg.MODEL.ORTH_LOSS_WEIGHT * loss_orth_calc
 
-                    loss = loss_base + loss_orth
+                    # 单独计算结构损失
+                    if structure_loss_func is not None and cfg.MODEL.STRUCT_LOSS_WEIGHT > 0 and f_struct is not None:
+                        loss_struct_raw = structure_loss_func(f_struct, target, target_cam)
+                        loss_struct = loss_struct_raw * cfg.MODEL.STRUCT_LOSS_WEIGHT
+                        current_loss_struct = loss_struct.item()
+                    else:
+                        loss_struct = torch.tensor(0.0, device=target.device)
+                        current_loss_struct = 0.0
+
+                    loss = loss_base + loss_orth + loss_struct
                     current_loss_orth = loss_orth.item()  # 记录 orth loss 值
                 else:
                     outputs = model(img, target, cam_label=target_cam, img_wh=img_wh)
-                    cls_score, feat = outputs
-                    loss_base = loss_fn(cls_score, feat, target, target_cam)
-                    loss = loss_base
+                    cls_score, feat, f_struct = outputs
+                    loss_base = loss_fn(cls_score, feat, target, target_cam, f_struct)
+                    
+                    # 单独计算结构损失
+                    if structure_loss_func is not None and cfg.MODEL.STRUCT_LOSS_WEIGHT > 0 and f_struct is not None:
+                        loss_struct_raw = structure_loss_func(f_struct, target, target_cam)
+                        loss_struct = loss_struct_raw * cfg.MODEL.STRUCT_LOSS_WEIGHT
+                        current_loss_struct = loss_struct.item()
+                    else:
+                        loss_struct = torch.tensor(0.0, device=target.device)
+                        current_loss_struct = 0.0
+                    
+                    loss = loss_base + loss_struct
                     current_loss_orth = 0.0
 
             scaler.scale(loss).backward()
@@ -204,6 +227,7 @@ def do_train(
             loss_meter.update(loss.item(), img.shape[0])
             loss_base_meter.update(loss_base.item(), img.shape[0])
             loss_orth_meter.update(current_loss_orth, img.shape[0])
+            loss_struct_meter.update(current_loss_struct, img.shape[0])
             acc_meter.update(acc, 1)
 
             torch.cuda.synchronize()
@@ -212,7 +236,7 @@ def do_train(
             current_lr = scheduler._get_lr(epoch)[0]
             logger.info(
                 f"Epoch[{epoch}] done. "
-                f"Loss: {loss_meter.avg:.3f} (Base: {loss_base_meter.avg:.3f}, Orth: {loss_orth_meter.avg:.3f}), "
+                f"Loss: {loss_meter.avg:.3f} (Base: {loss_base_meter.avg:.3f}, Orth: {loss_orth_meter.avg:.3f}, Struct: {loss_struct_meter.avg:.3f}), "
                 f"Acc: {acc_meter.avg:.3%}, "
                 f"Lr: {current_lr:.2e}"
             )

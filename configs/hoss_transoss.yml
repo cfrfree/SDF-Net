@@ -15,7 +15,9 @@ MODEL:
   PAIR: False
   GATED_ATTENTION: False
   DISENTANGLE: True
+  ABLATION_MODE: "sum"
   ORTH_LOSS_WEIGHT: 10.0
+  STRUCT_LOSS_WEIGHT: 0.5
 
 INPUT:
   SIZE_TRAIN: [256, 128]
@@ -42,7 +44,7 @@ SOLVER:
   IMS_PER_BATCH: 32
   WARMUP_METHOD: 'linear'
   LARGE_FC_LR: False
-  CHECKPOINT_PERIOD: 5
+  CHECKPOINT_PERIOD: 20
   LOG_PERIOD: 25
   EVAL_PERIOD: 5
   WEIGHT_DECAY:  1e-4
@@ -53,8 +55,8 @@ TEST:
   EVAL: True
   IMS_PER_BATCH: 256
   RE_RANKING: False
-  WEIGHT: 'logs/transoss_fuse_specific/transformer_80.pth'
+  WEIGHT: 'logs/records/transoss_fuse_struct/best.pth'
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/transoss_fuse_specific'
+OUTPUT_DIR: './logs/records/transoss_fuse_struct'
