@@ -93,9 +93,9 @@ def make_loss(cfg, num_classes):  # modified by gu
             "expected sampler should be softmax, triplet, softmax_triplet or softmax_triplet_center"
             "but got {}".format(cfg.DATALOADER.SAMPLER)
         )
-    
-    # 返回结构损失函数供外部使用
+
     from .structure_loss import StructureConsistencyLoss
+
     structure_loss_func = StructureConsistencyLoss()
-    
+
     return loss_func, center_criterion, structure_loss_func

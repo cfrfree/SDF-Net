@@ -118,19 +118,17 @@ def do_train(
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
     loss_base_meter = AverageMeter()
-    loss_orth_meter = AverageMeter()  # 新增：记录 Orth Loss
-    loss_struct_meter = AverageMeter()  # 新增：记录 Structure Loss
+    loss_orth_meter = AverageMeter()
+    loss_struct_meter = AverageMeter()
 
     evaluator = R1_mAP_eval(num_query, max_rank=50, feat_norm=cfg.TEST.FEAT_NORM)
     scaler = amp.GradScaler()
 
-    # ====================== 初始化最佳指标记录变量 ======================
     best_mAP = 0.0
     best_mAP_epoch = 0
     best_mAP_r1 = 0.0
     best_mAP_r5 = 0.0
     best_mAP_r10 = 0.0
-    # =======================================================================
 
     # train
     if torch.cuda.device_count() > 1 and cfg.MODEL.DIST_TRAIN:
@@ -142,8 +140,8 @@ def do_train(
         loss_meter.reset()
         acc_meter.reset()
         loss_base_meter.reset()
-        loss_orth_meter.reset()  # 重置 Orth meter
-        loss_struct_meter.reset()  # 重置 Structure meter
+        loss_orth_meter.reset()
+        loss_struct_meter.reset()
         evaluator.reset()
 
         scheduler.step(epoch)
@@ -159,7 +157,6 @@ def do_train(
             target_cam = target_cam.to(device)
             img_wh = img_wh.to(device)
 
-            # 初始化当前batch的 loss 记录变量
             current_loss_orth = 0.0
             current_loss_struct = 0.0
 
@@ -169,20 +166,22 @@ def do_train(
                         img, target, cam_label=target_cam, img_wh=img_wh
                     )
                     cls_score = score_fuse
-                    loss_base = loss_fn(score_fuse, feat_fuse, target, target_cam, f_struct)
-
-                    f_shared_norm = torch.nn.functional.normalize(
-                        feat_shared, p=2, dim=1
+                    loss_base = loss_fn(
+                        score_fuse, feat_fuse, target, target_cam, f_struct
                     )
+
+                    f_shared_norm = torch.nn.functional.normalize(feat_shared, p=2, dim=1)
                     f_spec_norm = torch.nn.functional.normalize(feat_spec, p=2, dim=1)
-                    loss_orth_calc = torch.mean(
-                        torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1))
-                    )
+                    loss_orth_calc = torch.mean(torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1)))
                     loss_orth = cfg.MODEL.ORTH_LOSS_WEIGHT * loss_orth_calc
-
-                    # 单独计算结构损失
-                    if structure_loss_func is not None and cfg.MODEL.STRUCT_LOSS_WEIGHT > 0 and f_struct is not None:
-                        loss_struct_raw = structure_loss_func(f_struct, target, target_cam)
+                    if (
+                        structure_loss_func is not None
+                        and cfg.MODEL.STRUCT_LOSS_WEIGHT > 0
+                        and f_struct is not None
+                    ):
+                        loss_struct_raw = structure_loss_func(
+                            f_struct, target, target_cam
+                        )
                         loss_struct = loss_struct_raw * cfg.MODEL.STRUCT_LOSS_WEIGHT
                         current_loss_struct = loss_struct.item()
                     else:
@@ -190,21 +189,26 @@ def do_train(
                         current_loss_struct = 0.0
 
                     loss = loss_base + loss_orth + loss_struct
-                    current_loss_orth = loss_orth.item()  # 记录 orth loss 值
+                    current_loss_orth = loss_orth.item()
                 else:
                     outputs = model(img, target, cam_label=target_cam, img_wh=img_wh)
                     cls_score, feat, f_struct = outputs
                     loss_base = loss_fn(cls_score, feat, target, target_cam, f_struct)
-                    
-                    # 单独计算结构损失
-                    if structure_loss_func is not None and cfg.MODEL.STRUCT_LOSS_WEIGHT > 0 and f_struct is not None:
-                        loss_struct_raw = structure_loss_func(f_struct, target, target_cam)
+
+                    if (
+                        structure_loss_func is not None
+                        and cfg.MODEL.STRUCT_LOSS_WEIGHT > 0
+                        and f_struct is not None
+                    ):
+                        loss_struct_raw = structure_loss_func(
+                            f_struct, target, target_cam
+                        )
                         loss_struct = loss_struct_raw * cfg.MODEL.STRUCT_LOSS_WEIGHT
                         current_loss_struct = loss_struct.item()
                     else:
                         loss_struct = torch.tensor(0.0, device=target.device)
                         current_loss_struct = 0.0
-                    
+
                     loss = loss_base + loss_struct
                     current_loss_orth = 0.0
 
@@ -223,7 +227,6 @@ def do_train(
             else:
                 acc = (cls_score.max(1)[1] == target).float().mean()
 
-            # 更新所有 Meter
             loss_meter.update(loss.item(), img.shape[0])
             loss_base_meter.update(loss_base.item(), img.shape[0])
             loss_orth_meter.update(current_loss_orth, img.shape[0])
@@ -269,21 +272,18 @@ def do_train(
                         evaluator.update((feat, vid, camid))
                 cmc, mAP, _, _, _, _, _ = evaluator.compute()
 
-                # Validation log also updated to f-string style (optional but consistent)
                 logger.info(f"Validation Results - Epoch: {epoch}")
                 logger.info(f"mAP: {mAP:.1%}")
                 for r in [1, 5, 10]:
                     logger.info(f"CMC curve, Rank-{r:<3}: {cmc[r - 1]:.1%}")
 
-                # ====================== 更新最佳指标并保存最优权重 ======================
                 if mAP > best_mAP:
                     best_mAP = mAP
                     best_mAP_epoch = epoch
-                    best_mAP_r1 = cmc[0]  # Rank-1 对应 cmc 第0个元素
-                    best_mAP_r5 = cmc[4]  # Rank-5 对应 cmc 第4个元素
-                    best_mAP_r10 = cmc[9]  # Rank-10 对应 cmc 第9个元素
+                    best_mAP_r1 = cmc[0]
+                    best_mAP_r5 = cmc[4]
+                    best_mAP_r10 = cmc[9]
 
-                    # 保存最优权重为 best.pth
                     best_ckpt_path = os.path.join(cfg.OUTPUT_DIR, "best.pth")
                     torch.save(model.state_dict(), best_ckpt_path)
 
@@ -291,13 +291,11 @@ def do_train(
                         f"Update Best mAP: {best_mAP:.1%} at Epoch {best_mAP_epoch}"
                     )
                     logger.info(f"Save Best Weights to: {best_ckpt_path}")
-                # =======================================================================
 
                 torch.cuda.empty_cache()
             if cfg.MODEL.DIST_TRAIN:
                 dist.barrier()
 
-    # ====================== 训练结束后输出最佳指标 ======================
     if not cfg.MODEL.DIST_TRAIN or dist.get_rank() == 0:
         logger.info("=" * 50)
         logger.info("Training Finished! Best Validation Metrics:")
@@ -309,7 +307,6 @@ def do_train(
             f"Best Weights Saved at: {os.path.join(cfg.OUTPUT_DIR, 'best.pth')}"
         )
         logger.info("=" * 50)
-    # =======================================================================
 
 
 def do_inference(cfg, model, val_loader, num_query):

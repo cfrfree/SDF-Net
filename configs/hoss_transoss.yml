@@ -13,11 +13,10 @@ MODEL:
   MIE_COE: 3.0
   SSE: True
   PAIR: False
-  GATED_ATTENTION: False
-  DISENTANGLE: True
+  DISENTANGLE: False
   ABLATION_MODE: "sum"
   ORTH_LOSS_WEIGHT: 10.0
-  STRUCT_LOSS_WEIGHT: 0.5
+  STRUCT_LOSS_WEIGHT: 1.0
 
 INPUT:
   SIZE_TRAIN: [256, 128]
@@ -59,4 +58,4 @@ TEST:
   NECK_FEAT: 'before'
   FEAT_NORM: 'yes'
 
-OUTPUT_DIR: './logs/records/transoss_fuse_struct'
+OUTPUT_DIR: './logs/records/transoss_struct8'

@@ -138,17 +138,11 @@ class build_transformer(nn.Module):
         self.in_planes = 768
         self.model_type = cfg.MODEL.TRANSFORMER_TYPE
         self.disentangle = cfg.MODEL.DISENTANGLE
-        # 'sum'      : (D) FSS (Your Method) - [feat_shared + feat_spec]
-        # 'shared'   : (A) Shared only       - [feat_shared]
-        # 'specific' : (B) Specific only     - [feat_spec]
-        # 'concat'   : (C) Concat            - [cat(feat_shared, feat_spec)]
         self.ablation_mode = cfg.MODEL.ABLATION_MODE
         print(f"Current Ablation Mode: {self.ablation_mode}")
         if self.disentangle and self.ablation_mode == "concat":
-            # 如果是 Concat 模式，融合特征维度是 2倍 (768 * 2 = 1536)
             fusion_dim = self.in_planes * 2
         else:
-            # 其他模式 (Sum, Shared, Specific) 维度保持 768
             fusion_dim = self.in_planes
 
         print(
@@ -171,7 +165,6 @@ class build_transformer(nn.Module):
                 drop_rate=cfg.MODEL.DROP_OUT,
                 attn_drop_rate=cfg.MODEL.ATT_DROP_RATE,
                 sse=cfg.MODEL.SSE,
-                use_gated_attention=cfg.MODEL.GATED_ATTENTION,
                 disentangle=self.disentangle,
             )
         else:
@@ -247,26 +240,24 @@ class build_transformer(nn.Module):
         self.train_pair = False
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
-        # 1. 特征提取
         if self.disentangle:
-            feat_shared, feat_spec, f_struct = self.base(x, cam_label=cam_label, img_wh=img_wh)
-
-            # ================= [消融实验逻辑] =================
-            if self.ablation_mode == "sum":  # (D) FSS (Sum)
+            feat_shared, feat_spec, f_struct = self.base(
+                x, cam_label=cam_label, img_wh=img_wh
+            )
+            if self.ablation_mode == "sum":
                 feat_fuse = feat_shared + feat_spec
 
-            elif self.ablation_mode == "shared":  # (A) Shared only
+            elif self.ablation_mode == "shared":
                 feat_fuse = feat_shared
 
-            elif self.ablation_mode == "specific":  # (B) Specific only
+            elif self.ablation_mode == "specific":
                 feat_fuse = feat_spec
 
-            elif self.ablation_mode == "concat":  # (C) Concat
-                feat_fuse = torch.cat([feat_shared, feat_spec], dim=1)  # Dim: 1536
+            elif self.ablation_mode == "concat":
+                feat_fuse = torch.cat([feat_shared, feat_spec], dim=1)
 
             else:
                 raise ValueError(f"Unknown ablation mode: {self.ablation_mode}")
-            # ================================================
 
         else:
             global_feat, f_struct = self.base(x, cam_label=cam_label, img_wh=img_wh)
@@ -274,13 +265,10 @@ class build_transformer(nn.Module):
             feat_shared = None
             feat_spec = None
 
-        # 2. 分类头处理
         if self.disentangle:
             feat_fuse_bn = self.bottleneck_fuse(feat_fuse)
         else:
             feat_fuse_bn = self.bottleneck(feat_fuse)
-
-        # 3. 返回结果
         if self.training:
             if self.ID_LOSS_TYPE in ("arcface", "cosface", "amsoftmax", "circle"):
                 score_fuse = self.classifier(feat_fuse_bn, label)

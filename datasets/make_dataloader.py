@@ -8,14 +8,12 @@ from timm.data.random_erasing import RandomErasing
 from .sampler import RandomIdentitySampler
 from .sampler_ddp import RandomIdentitySampler_DDP
 import torch.distributed as dist
-from .sysu import SYSU
 from .hoss import HOSS
 from .pretrain import Pretrain
 
 
 __factory = {
     "HOSS": HOSS,
-    "sysu": SYSU,
     "Pretrain": Pretrain,
 }
 
@@ -27,9 +25,6 @@ def seed_worker(worker_id):
 
 
 def train_collate_fn(batch):
-    """
-    # collate_fn这个函数的输入就是一个list，list的长度是一个batch size，list中的每个元素都是__getitem__得到的结果
-    """
     imgs, pids, camids, viewids, _, img_size = zip(*batch)
     pids = torch.tensor(pids, dtype=torch.int64)
     viewids = torch.tensor(viewids, dtype=torch.int64)
@@ -39,9 +34,6 @@ def train_collate_fn(batch):
 
 
 def train_pair_collate_fn(batch):
-    """
-    # collate_fn这个函数的输入就是一个list，list的长度是一个batch size，list中的每个元素都是__getitem__得到的结果
-    """
     rgb_batch = [i[0] for i in batch]
     sar_batch = [i[1] for i in batch]
     batch = rgb_batch + sar_batch

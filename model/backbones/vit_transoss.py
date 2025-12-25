@@ -81,7 +81,6 @@ class Attention(nn.Module):
         qk_scale=None,
         attn_drop=0.0,
         proj_drop=0.0,
-        use_gated=False,
     ):
         super().__init__()
         self.num_heads = num_heads
@@ -92,11 +91,6 @@ class Attention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
-
-        self.use_gated = use_gated
-        if self.use_gated:
-            self.gate_proj = nn.Linear(dim, dim, bias=False)
-            nn.init.normal_(self.gate_proj.weight, std=0.02)
 
     def forward(self, x):
         B, N, C = x.shape
@@ -117,10 +111,6 @@ class Attention(nn.Module):
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
 
-        if self.use_gated:
-            gating_score = torch.sigmoid(self.gate_proj(x))
-            x = x * gating_score
-
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -139,7 +129,6 @@ class Block(nn.Module):
         drop_path=0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
-        use_gated=False,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
@@ -150,7 +139,6 @@ class Block(nn.Module):
             qk_scale=qk_scale,
             attn_drop=attn_drop,
             proj_drop=drop,
-            use_gated=use_gated,
         )
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
@@ -316,14 +304,13 @@ class TransOSS(nn.Module):
         local_feature=False,
         mie_coe=1.0,
         sse=False,
-        use_gated_attention=False,
         disentangle=False,
     ):
         super().__init__()
         self.num_classes = num_classes
-        self.num_features = (
-            self.embed_dim
-        ) = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = (
+            embed_dim  # num_features for consistency with other models
+        )
         self.local_feature = local_feature
         self.disentangle = disentangle
         if hybrid_backbone is not None:
@@ -359,16 +346,13 @@ class TransOSS(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         if self.disentangle:
-            # 如果解耦，我们有两个 Token (Shared + Specific)，所以是 num_patches + 2
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 2, embed_dim))
 
-            # 初始化 Specific Tokens
             self.cls_token_spe_rgb = nn.Parameter(torch.zeros(1, 1, embed_dim))
             self.cls_token_spe_sar = nn.Parameter(torch.zeros(1, 1, embed_dim))
             trunc_normal_(self.cls_token_spe_rgb, std=0.02)
             trunc_normal_(self.cls_token_spe_sar, std=0.02)
         else:
-            # 原始逻辑，只有一个 Token，所以是 num_patches + 1
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.cam_num = camera
         self.mie_coe = mie_coe
@@ -398,7 +382,6 @@ class TransOSS(nn.Module):
                     attn_drop=attn_drop_rate,
                     drop_path=dpr[i],
                     norm_layer=norm_layer,
-                    use_gated=use_gated_attention,
                 )
                 for i in range(depth)
             ]
@@ -429,41 +412,27 @@ class TransOSS(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def _extract_structure_energy(self, x_patches):
-        """
-        计算 Feature Map 的梯度能量作为结构表征
-        x_patches: [B, N, C] 纯图像 Patch 的特征
-        """
         B, N, C = x_patches.shape
         H, W = self.patch_embed.num_y, self.patch_embed.num_x
-        
-        # 1. Reshape 回图像空间 [B, H, W, C]
-        # 注意：如果 N != H*W (例如有 resize)，这里需要做容错，但通常训练是固定的
+
         if N != H * W:
-            # 简单处理：如果尺寸不对，尝试通过插值或 reshape 适配
-            # 这里假设 N 是标准的 H*W
             S = int(N**0.5)
             x_img = x_patches.reshape(B, S, S, C)
         else:
             x_img = x_patches.reshape(B, H, W, C)
-        
-        # 2. 计算梯度 (Sobel 的简化版：差分)
-        # 沿 H 方向的梯度 (dy)
+
         grad_h = x_img[:, 1:, :, :] - x_img[:, :-1, :, :]
-        # 沿 W 方向的梯度 (dx)
         grad_w = x_img[:, :, 1:, :] - x_img[:, :, :-1, :]
-        
-        # 3. 计算能量 E = |dx| + |dy|
-        # 我们希望得到 [B, C] 的向量，代表每个通道的"结构强度"
-        energy_h = torch.abs(grad_h).mean(dim=(1, 2)) # GAP over spatial
-        energy_w = torch.abs(grad_w).mean(dim=(1, 2)) # GAP over spatial
-        
-        f_struct = energy_h + energy_w # [B, C]
-        
-        # 可选：做一个 L2 Norm，让特征分布更稳定
-        f_struct = f_struct.unsqueeze(1) # [B, 1, C] 适配 instance_norm 输入
+
+        energy_h = torch.abs(grad_h).mean(dim=(1, 2))
+        energy_w = torch.abs(grad_w).mean(dim=(1, 2))
+
+        f_struct = energy_h + energy_w
+
+        f_struct = f_struct.unsqueeze(1)
         f_struct = torch.nn.functional.instance_norm(f_struct)
-        f_struct = f_struct.squeeze(1)   # [B, C]
-        
+        f_struct = f_struct.squeeze(1)
+
         return f_struct
 
     @torch.jit.ignore
@@ -491,12 +460,10 @@ class TransOSS(nn.Module):
         x[rgb_id] = x_rgb
         x[sar_id] = x_sar
 
-        # wh_embed head
         if hasattr(self, "wh_embed"):
             wh_tokens = self.wh_embed(img_wh).unsqueeze(1)
         cls_tokens = self.cls_token.expand(B, -1, -1)
         if self.disentangle:
-            # 1. 准备 Specific Tokens
             rgb_id = torch.where(camera_id == 0)[0]
             sar_id = torch.where(camera_id == 1)[0]
 
@@ -506,7 +473,6 @@ class TransOSS(nn.Module):
             if len(sar_id) > 0:
                 spe_tokens[sar_id] = self.cls_token_spe_sar.expand(len(sar_id), -1, -1)
 
-            # 2. 拼接: [Shared, Specific, Patches]
             x = torch.cat((cls_tokens, spe_tokens, x), dim=1)
         else:
             x = torch.cat((cls_tokens, x), dim=1)
@@ -523,27 +489,21 @@ class TransOSS(nn.Module):
             return x
         else:
             f_struct = None
-            # 遍历 Block
             for i, blk in enumerate(self.blocks):
                 x = blk(x)
-                # 在中间层提取结构特征 (例如第6层，index=5)
-                if i == 5: 
-                    # 确定 Patch 的索引范围
+                if i == 7:
                     start_idx = 2 if self.disentangle else 1
-                    end_idx = x.shape[1] 
+                    end_idx = x.shape[1]
                     if hasattr(self, "wh_embed"):
-                        end_idx -= 1 # 假设 wh_token 在最后
-                    
-                    # [B, N_patches, C]
-                    x_patches = x[:, start_idx:end_idx, :] 
+                        end_idx -= 1
+
+                    x_patches = x[:, start_idx:end_idx, :]
                     f_struct = self._extract_structure_energy(x_patches)
-            
+
             x = self.norm(x)
             if self.disentangle:
-                # x[:, 0] -> Shared, x[:, 1] -> Specific
                 return x[:, 0], x[:, 1], f_struct
             else:
-                # 原始逻辑，返回 cls_token 和结构特征
                 return x[:, 0], f_struct
 
     def forward(self, x, label=None, cam_label=None, img_wh=None):
@@ -568,27 +528,18 @@ class TransOSS(nn.Module):
                     print("distill need to choose right cls token in the pth")
                     v = torch.cat([v[:, 0:1], v[:, 2:]], dim=1)
 
-                # --- 修改开始：智能判断是否需要 resize ---
-
-                # 假设 v 的第 0 个是 CLS Token，后面是 Patch Tokens
-                # 源权重中的 patch 数量
                 src_num_patches = v.shape[1] - 1
-                # 当前模型的 patch 数量 (不含 CLS Tokens)
                 tgt_num_patches = self.patch_embed.num_patches
 
                 if src_num_patches == tgt_num_patches:
-                    # Case A: Patch 数量一致（空间分辨率匹配），不需要 resize_pos_embed
-                    # 仅处理因 disentangle 导致的 Token 数量不一致
                     if self.disentangle and v.shape[1] == self.pos_embed.shape[1] - 1:
                         print(
                             f"Adapting pos_embed for disentangle (spatial match): {v.shape} -> {self.pos_embed.shape}"
                         )
                         cls_pos = v[:, 0:1]
                         patch_pos = v[:, 1:]
-                        # 复制 CLS Token 的位置编码给 Specific Token
                         v = torch.cat([cls_pos, cls_pos, patch_pos], dim=1)
                 else:
-                    # Case B: Patch 数量不一致（例如加载 ImageNet 权重），需要 resize
                     print(f"Resizing pos_embed: {v.shape} -> {self.pos_embed.shape}")
                     v = resize_pos_embed(
                         v,
@@ -597,14 +548,11 @@ class TransOSS(nn.Module):
                         self.patch_embed.num_x,
                     )
 
-                    # resize 后，如果是 disentangle 模式，仍然少一个 Token，需要补上
                     if self.disentangle and v.shape[1] == self.pos_embed.shape[1] - 1:
                         print(f"Extending pos_embed token after resize")
                         cls_pos = v[:, 0:1]
                         patch_pos = v[:, 1:]
                         v = torch.cat([cls_pos, cls_pos, patch_pos], dim=1)
-
-                # --- 修改结束 ---
 
             try:
                 self.state_dict()[k].copy_(v)
@@ -657,7 +605,6 @@ def vit_base_patch16_224_TransOSS(
     local_feature=False,
     mie_coe=1.5,
     sse=False,
-    use_gated_attention=False,
     **kwargs,
 ):
     model = TransOSS(
@@ -677,7 +624,6 @@ def vit_base_patch16_224_TransOSS(
         mie_coe=mie_coe,
         local_feature=local_feature,
         sse=sse,
-        use_gated_attention=use_gated_attention,
         **kwargs,
     )
 
