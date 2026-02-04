@@ -1,6 +1,6 @@
 import torch
 
-path = "logs/transoss_fuse/transformer_100.pth"
+path = "/home/chenfree2002/Python/TGRS/rrsis/logs/model_best_1234.pth"
 
 checkpoint = torch.load(path, map_location="cpu")
 

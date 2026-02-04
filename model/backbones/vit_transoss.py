@@ -305,12 +305,14 @@ class TransOSS(nn.Module):
         mie_coe=1.0,
         sse=False,
         disentangle=False,
+        struct_layer_index=5,
     ):
         super().__init__()
+        self.struct_layer_index = struct_layer_index
         self.num_classes = num_classes
-        self.num_features = self.embed_dim = (
-            embed_dim  # num_features for consistency with other models
-        )
+        self.num_features = (
+            self.embed_dim
+        ) = embed_dim  # num_features for consistency with other models
         self.local_feature = local_feature
         self.disentangle = disentangle
         if hybrid_backbone is not None:
@@ -491,7 +493,7 @@ class TransOSS(nn.Module):
             f_struct = None
             for i, blk in enumerate(self.blocks):
                 x = blk(x)
-                if i == 7:
+                if i == self.struct_layer_index - 1:
                     start_idx = 2 if self.disentangle else 1
                     end_idx = x.shape[1]
                     if hasattr(self, "wh_embed"):
@@ -605,6 +607,7 @@ def vit_base_patch16_224_TransOSS(
     local_feature=False,
     mie_coe=1.5,
     sse=False,
+    struct_layer_index=7,
     **kwargs,
 ):
     model = TransOSS(
@@ -624,6 +627,7 @@ def vit_base_patch16_224_TransOSS(
         mie_coe=mie_coe,
         local_feature=local_feature,
         sse=sse,
+        struct_layer_index=struct_layer_index,
         **kwargs,
     )
 

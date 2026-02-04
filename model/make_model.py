@@ -166,6 +166,7 @@ class build_transformer(nn.Module):
                 attn_drop_rate=cfg.MODEL.ATT_DROP_RATE,
                 sse=cfg.MODEL.SSE,
                 disentangle=self.disentangle,
+                struct_layer_index=cfg.MODEL.STRUCT_LAYER_INDEX,
             )
         else:
             raise ValueError(
@@ -246,16 +247,12 @@ class build_transformer(nn.Module):
             )
             if self.ablation_mode == "sum":
                 feat_fuse = feat_shared + feat_spec
-
             elif self.ablation_mode == "shared":
                 feat_fuse = feat_shared
-
             elif self.ablation_mode == "specific":
                 feat_fuse = feat_spec
-
             elif self.ablation_mode == "concat":
                 feat_fuse = torch.cat([feat_shared, feat_spec], dim=1)
-
             else:
                 raise ValueError(f"Unknown ablation mode: {self.ablation_mode}")
 

@@ -1,5 +1,4 @@
 from PIL import Image, ImageFile
-
 from torch.utils.data import Dataset
 import os.path as osp
 import cv2
@@ -114,7 +113,6 @@ class ImageDataset(Dataset):
     def __init__(self, dataset, transform=None, pair=False):
         self.dataset = dataset
         self.transform = transform
-
         self.pair = pair
 
     def __len__(self):

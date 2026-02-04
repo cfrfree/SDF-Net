@@ -170,9 +170,13 @@ def do_train(
                         score_fuse, feat_fuse, target, target_cam, f_struct
                     )
 
-                    f_shared_norm = torch.nn.functional.normalize(feat_shared, p=2, dim=1)
+                    f_shared_norm = torch.nn.functional.normalize(
+                        feat_shared, p=2, dim=1
+                    )
                     f_spec_norm = torch.nn.functional.normalize(feat_spec, p=2, dim=1)
-                    loss_orth_calc = torch.mean(torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1)))
+                    loss_orth_calc = torch.mean(
+                        torch.abs(torch.sum(f_shared_norm * f_spec_norm, dim=1))
+                    )
                     loss_orth = cfg.MODEL.ORTH_LOSS_WEIGHT * loss_orth_calc
                     if (
                         structure_loss_func is not None
@@ -244,7 +248,7 @@ def do_train(
                 f"Lr: {current_lr:.2e}"
             )
 
-        if epoch % checkpoint_period == 0:
+        if checkpoint_period > 0 and epoch % checkpoint_period == 0:
             if not cfg.MODEL.DIST_TRAIN or dist.get_rank() == 0:
                 torch.save(
                     model.state_dict(),
