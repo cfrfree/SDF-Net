@@ -100,4 +100,4 @@ If you find this work useful, please cite our paper:
 
 ## Acknowledgements
 
-This codebase is built upon [TransReID](https://github.com/damo-cv/TransReID) and [TransOSS](https://www.google.com/search?q=https://huggingface.co/Alioth2000/TransOSS). We thank the authors for their excellent work.
+This codebase is built upon [TransReID](https://github.com/damo-cv/TransReID) and [TransOSS](https://github.com/Alioth2000/Hoss-ReID). We thank the authors for their excellent work.
