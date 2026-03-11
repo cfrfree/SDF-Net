@@ -11,7 +11,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TransOSS Testing")
     parser.add_argument(
         "--config_file",
-        default="configs/hoss_transoss.yml",
+        default="configs/SDF-Net.yml",
         help="path to config file",
         type=str,
     )

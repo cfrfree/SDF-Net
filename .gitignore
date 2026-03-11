@@ -1,6 +1,9 @@
 /data/
 /logs/
 /weights/
+/visualizations/
+/scripts
+check_pth.py
 *.sh
 *.out
 *.pth

@@ -1,6 +1,6 @@
 import torch
 
-path = "/home/chenfree2002/Python/TGRS/rrsis/logs/model_best_1234.pth"
+path = "logs/new/SDF-Net_shared_struct6/best.pth"
 
 checkpoint = torch.load(path, map_location="cpu")
 

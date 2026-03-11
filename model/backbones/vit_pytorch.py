@@ -408,9 +408,9 @@ class TransReID(nn.Module):
     ):
         super().__init__()
         self.num_classes = num_classes
-        self.num_features = (
-            self.embed_dim
-        ) = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = (
+            embed_dim  # num_features for consistency with other models
+        )
         self.local_feature = local_feature
         if hybrid_backbone is not None:
             self.patch_embed = HybridEmbed(
