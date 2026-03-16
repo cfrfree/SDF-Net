@@ -2,6 +2,12 @@
 
 # SDF-Net: Structure-aware Disentangled Feature Learning for Optical-SAR Ship Re-identification
 
+[![Paper](https://img.shields.io/badge/arXiv-2603.12588-b31b1b.svg)](https://arxiv.org/abs/2603.12588)
+
+> 📄 **Paper:** [https://arxiv.org/abs/2603.12588](https://arxiv.org/abs/2603.12588)
+> 
+> 📥 **PDF:** [https://arxiv.org/pdf/2603.12588](https://arxiv.org/pdf/2603.12588)
+> 
 Official PyTorch implementation of **SDF-Net**. This project focuses on cross-modal ship re-identification (Re-ID) between Optical and Synthetic Aperture Radar (SAR) imagery by leveraging disentangled feature representation and structural consistency anchors.
 
 ## Abstract
@@ -84,19 +90,18 @@ Refer to `config/defaults.py` for detailed settings:
 * `MODEL.STRUCT_LOSS_WEIGHT`: Weight for Structure Consistency Loss (SCL).
 * `MODEL.ORTH_LOSS_WEIGHT`: Weight for Orthogonal Loss between shared and specific tokens.
 
-<!-- ## Citation
+## Citation
 
-If you find this work useful, please cite our paper:
+If you find our work useful for your research, please consider starring this repository and citing our paper:
 
 ```bibtex
-@article{Chen2026SDFNet,
-    author    = {Fu Rui Chen and others},
-    title     = {SDF-Net: Structure-aware Disentangled Feature Learning for Optical-SAR Ship Re-identification},
-    journal   = {IEEE Transactions on Geoscience and Remote Sensing (TGRS)},
-    year      = {2026}
+@article{chen2026sdfnet,
+  title={SDF-Net: Structure-Aware Disentangled Feature Learning for Optical-SAR Ship Re-Identification},
+  author={Chen, Furui and Wang, Han and Sun, Yuhan and You, Jianing and Lv, Yixuan and Zhou, Zhuang and Tan, Hong and Li, Shengyang},
+  journal={arXiv preprint arXiv:2603.12588},
+  year={2026}
 }
-
-``` -->
+```
 
 ## Acknowledgements
 
